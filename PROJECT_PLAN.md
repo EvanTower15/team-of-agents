@@ -31,6 +31,12 @@
 
 1. **Before starting work:** read the Status block above, find your phase in [§8](#8-phase-plan),
    and confirm its dependencies are marked complete.
+   > ⚠️ **Prerequisite for Ben & James (or any agent working on their behalf):** you need
+   > your own free Groq API key before any agent code will actually run — the router, both
+   > specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`. Sign up at
+   > https://console.groq.com, create a key, copy `.env.example` → `.env`, and paste it in
+   > as `GROQ_API_KEY=`. `.env` is gitignored — never commit it. Delete this notice once both
+   > of you have confirmed your keys work (e.g. a phase-results block says so).
 2. **While working:** follow the interface contracts in [§5](#5-module-contracts--work-in-parallel-safely)
    exactly. They exist so phases can proceed in parallel without merge pain. If you must
    change a contract, update this file in the same PR and flag it in the PR description.
