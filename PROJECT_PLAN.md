@@ -5,10 +5,27 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 0 COMPLETE (2026-07-12). Next up: Phase 1 (shared RAG core + agent base, James) — Phase 4 (Ben) may also start now against stub agents. Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
+> **Status: PHASE 1 COMPLETE (2026-07-12). Next up, all parallel-safe: Phase 2 (PT agent, James), Phase 3 (Trainer agent, owner TBD), Phase 4 (router + orchestrator, Ben). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 1 results (2026-07-12)** — `src/rag_core.py`, `src/ingest.py`, `src/agents/base.py`
+> landed (run by Evan+Claude; James picks up at Phase 2). Facts the next phases need:
+> (1) `CHROMA_PERSIST_DIR` is anchored to the **repo root** (absolute path), not the process
+> cwd — §5.1 contract updated to match, so Streamlit/CLI agree on one store location.
+> (2) The §7.1 grounding rule is baked into `base.py`'s prompt template — personas do NOT
+> need to repeat it; concrete agents only set `name` / `display_name` / `collection_name` /
+> `persona_prompt` and call `run_cli()` for their `__main__` (§5.2 note added).
+> (3) **Console prints must stay ASCII-only** — Windows cp1252 terminals crash on `→`/`§`
+> (hit this twice; use `->` and `section`). (4) First embedding run downloads MiniLM (~90 MB)
+> to the HF cache; the HF symlink warning on Windows is harmless. (5) Verified on Python
+> 3.13.5 + torch 2.13.0+cpu. Done-when evidence: fictional ZQX-7 protocol doc → ingest
+> (2 chunks) → grounded answer citing `[source: _smoke_test.txt]` with correct `sources`
+> list; out-of-corpus question ("swimming?") got an honest "I don't have material on that";
+> unbuilt collection returned `error` field (no raise) with a fix-it message; missing
+> GROQ_API_KEY raises EnvironmentError naming `.env.example`. Smoke fixtures + `chroma_db/`
+> deleted after verification — Phase 2 starts from a clean store.
 >
 > **Phase 0 results (2026-07-12)** — Scaffolding on `main` (commit `8413faf`): README stub,
 > `.gitignore`, `.env.example` (GROQ_API_KEY only), `requirements.txt` (§3 verbatim), package
@@ -171,7 +188,7 @@ These signatures are **frozen** once Phase 0 merges. Build to them; stub what yo
 ### 5.1 `src/rag_core.py` (Phase 1)
 
 ```python
-CHROMA_PERSIST_DIR = "chroma_db"
+CHROMA_PERSIST_DIR = str(<repo_root> / "chroma_db")   # anchored to repo root, cwd-independent
 
 def ingest_folder(folder: str, collection_name: str) -> int:
     """Load all .pdf/.txt/.md in folder, chunk (1000 chars / 150 overlap),
@@ -212,7 +229,9 @@ class SpecialistAgent:
 ```
 
 Each concrete agent file (`physical_therapist.py`, `gym_trainer.py`) just subclasses with
-its persona and collection, and adds a `__main__` CLI so it is testable standalone:
+its persona and collection, and adds a `__main__` CLI so it is testable standalone
+(`base.py` ships a `run_cli(agent, default_question)` helper — the `__main__` block is two
+lines; the §7.1 grounding rule is already baked into the base prompt, don't repeat it):
 
 ```
 python -m src.agents.physical_therapist "My knee aches after squats — normal?"
@@ -367,13 +386,13 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 
 ### Phase 1 — Shared RAG core + agent base — **James**
 
-- [ ] `src/rag_core.py` per contract §5.1 (port opim-5517 `retrieval.py` flow: loaders for
+- [x] `src/rag_core.py` per contract §5.1 (port opim-5517 `retrieval.py` flow: loaders for
       pdf/txt/md → `RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150,
       add_start_index=True)` → `HuggingFaceEmbeddings("sentence-transformers/all-MiniLM-L6-v2")`
       → `Chroma(persist_directory, collection_name)`)
-- [ ] `src/ingest.py` CLI: `python -m src.ingest --agent pt` ingests `data/pt/` →
+- [x] `src/ingest.py` CLI: `python -m src.ingest --agent pt` ingests `data/pt/` →
       collection `pt_docs` (and `--agent trainer` → `trainer_docs`); `--fresh` flag clears first
-- [ ] `src/agents/base.py` per contract §5.2 (retrieve → persona prompt → `get_llm()` →
+- [x] `src/agents/base.py` per contract §5.2 (retrieve → persona prompt → `get_llm()` →
       answer; never raises; `peer_context` injected into the prompt when present)
 - **Done when:** a throwaway txt file in `data/pt/` can be ingested and a base-class agent
   answers a question about it with correct source attribution, and a deliberately broken
