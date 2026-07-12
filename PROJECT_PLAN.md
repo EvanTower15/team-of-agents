@@ -5,10 +5,26 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 1 COMPLETE (2026-07-12). Next up, all parallel-safe: Phase 2 (PT agent, James), Phase 3 (Trainer agent, owner TBD), Phase 4 (router + orchestrator, Ben). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
+> **Status: PHASE 2 COMPLETE (2026-07-12). Next up, parallel-safe: Phase 3 (Trainer agent, owner TBD) and Phase 4 (router + orchestrator, Ben). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 2 results (2026-07-12)** — PT agent live. Corpus: **29 docs in `data/pt/`**
+> (25 txt + 4 PDF — three CDC STEADI brochures + the 34-page NIA "Exercise and Physical
+> Activity for Older Adults" guide), all public-domain except 4 NHS pages under OGL;
+> provenance in `data/SOURCES.md`. Ingest: **203 chunks**; PDF page-level loading verified
+> (NIA guide → 34 Documents). `PhysicalTherapistAgent` uses `k=6` (larger corpus). Battery:
+> 5 in-scope questions answered grounded + persona-consistent + source-cited (stage-aware
+> PRICE-then-progress answers; the age-70 question cited NIA PDF **page numbers**);
+> "best protein powder?" → honest not-my-area deferral to a dietitian. Fetch gotchas for
+> Phase 3's corpus run (fetch script pattern in Evan's scratchpad, not committed — corpus
+> files are committed pre-curated per §2): (1) NIAMS redirected sprains/tendinitis/bursitis
+> URLs to ONE consolidated sports-injuries page — dedupe before committing; (2) NINDS
+> back-pain URL now redirects to their general "Pain" page (kept as `ninds_pain.txt`);
+> (3) MedlinePlus: extract only the `#topic-summary` div, the rest is link nav; (4) NIA
+> PDF's current URL is `order.nia.nih.gov/sites/default/files/2025-04/…` (2018 URL 404s);
+> (5) every corpus txt carries a title/source/license/date header — keep that convention.
 >
 > **Phase 1 results (2026-07-12)** — `src/rag_core.py`, `src/ingest.py`, `src/agents/base.py`
 > landed (run by Evan+Claude; James picks up at Phase 2). Facts the next phases need:
@@ -400,14 +416,14 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 
 ### Phase 2 — Physical Therapist agent — **James**
 
-- [ ] Corpus into `data/pt/` (~10–30 documents is plenty). Suggested public-domain-first
+- [x] Corpus into `data/pt/` (~10–30 documents is plenty). Suggested public-domain-first
       sources: MedlinePlus rehab/injury pages (public domain), NIH/NIA "Exercise & Physical
       Activity" guides, CDC injury-basics pages; NHS rehab leaflets are OGL-licensed
       (reuse with attribution) — log everything in `data/SOURCES.md`
-- [ ] `src/agents/physical_therapist.py`: persona = licensed-DPT voice; scope = rehab
+- [x] `src/agents/physical_therapist.py`: persona = licensed-DPT voice; scope = rehab
       progression, pain vs. soreness, ROM/mobility, when to regress an exercise; explicitly
       instructed to defer diagnosis to clinicians; grounding rule verbatim (§7.1)
-- [ ] CLI smoke test (§5.2) on ≥ 5 questions from the §9 battery; paste transcript
+- [x] CLI smoke test (§5.2) on ≥ 5 questions from the §9 battery; paste transcript
       highlights into the phase-results block
 - **Done when:** PT battery questions get grounded, persona-consistent, source-cited
   answers, and an out-of-scope question ("best protein powder?") gets an honest
