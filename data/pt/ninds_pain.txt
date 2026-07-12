@@ -1,0 +1,246 @@
+Pain | National Institute of Neurological Disorders and Stroke
+Source: https://www.ninds.nih.gov/health-information/disorders/back-pain
+License: Public domain (US federal government work)
+Fetched: 2026-07-12
+======================================================================
+
+Pain
+
+What is pain?
+Pain is an unpleasant sensory and emotional experience. No two people feel pain the same way, even if the reasons for their pain are alike. Pain is a highly personal experience and a person’s report of their own pain is the best measure. Pain can feel mild or severe. Pain can include pricking, tingling, stinging, burning, shooting, aching, or electric sensations.
+Pain is among the most important signals our body gives to help us survive. Pain can alert us to harmful changes in the body, like cancer, or help us learn to avoid something harmful, like touching a hot stove. In this way, some forms of pain keep us safe.
+In other cases, pain exists or continues without any known cause or benefit. Pain that continues for longer than three months is called chronic pain. Chronic pain can happen without a known cause and persist after an injury or known cause is resolved. It can affect a person’s mood, relationships, movement, and all aspects of daily life. Pain can make it harder to do necessary tasks, work, and enjoy activities.
+Patterns and types of pain
+There are three primary patterns of pain, which are named based on how long the pain lasts and its frequency.
+Acute pain
+starts suddenly and ends when its cause is treated or healed. The feeling of acute pain is usually sharp because it tends to act as a warning signal about a threat to the body from an injury, disease, overuse, or other environmental stress. Common causes for acute pain are strained muscles, broken bones, dental work, surgery, childbirth, infections, and/or burns.
+Episodic pain
+happens from time to time and may be at irregular intervals. It may be associated with a long-term medical condition, like sickle cell disease. Painful periods and chronic migraine are examples of episodic pain. It can happen out of nowhere or may be caused by known triggers.
+Chronic pain
+lasts for longer than three months or the expected healing time. In some cases, an acute pain condition might persist and become chronic pain. In other cases, chronic pain happens for no known reason. People might experience one or more chronic pain conditions, or chronic and acute pain, at the same time.
+Pain can also be put into categories based on its most likely source. In many cases, pain fits in to more than one of these categories:
+Nociceptive
+
+pain
+describes pain that is caused by tissue damage and/or inflammation. The sensation can be sharp, pricking, dull, or aching, depending on what caused the damage or inflammation. Examples of nociceptive pain are pain from a paper cut, an infection, a broken bone, or osteoarthritis.
+Neuropathic pain
+describes pain that is caused by nerve damage due to an injury or disease. Neuropathic pain sensations are often described as burning, tingling, shooting, or like electric shocks. Examples of conditions that cause neuropathic pain are diabetic neuropathy, shingles, and sciatica.
+Nociplastic pain
+describes pain that is caused by changes in how the nervous system processes pain. The changes that cause nociplastic pain are not linked with a clear injury, tissue damage, inflammation, or disease. The sensations related to this kind of pain vary widely. Examples of nociplastic pain include fibromyalgia, irritable bowel syndrome, and chronic low back pain.
+What causes pain?
+There is still much to learn about how and why people feel pain in different ways. Acute pain with an obvious cause (an infection or broken bone, for example) is much better understood than chronic pain. Research shows that factors and changes in the body (biological), the mind (psychological), and a person’s experiences with others along with the conditions in their environment (social) are all contributors to an individual’s experience of pain. For this reason, pain is known as a biopsychosocial experience.
+Biological factors associated with pain include things like brain function and genetics. Psychological factors are things like mood and stress. Social factors include things like having (or not having) a support system or experiencing biased care. Each set of factors affects and impacts one another. Therefore, treatment for pain is both complex and individual.
+Biological factors of pain
+Many different biological factors are involved in the experience of pain, including the type of injury to the body, genetics and epigenetics, the nervous system, the immune system, and the endocrine system.
+Genetics and epigenetics of pain
+Each of us is born with a set of genes that we inherit from our parents. However, daily life stressors, lifestyle habits, and medical conditions influence which genes turn on or off over a person’s lifetime. This is the difference between
+genetics
+, or the study of genes and heredity, and
+epigenetics
+, or the study of how the environment and behaviors change how genes work.
+Many genes play roles in how a person feels pain, their risk for developing chronic pain, and how well they respond to pain treatments. This risk comes from genes that control the function of body systems involved in pain and relief. It can also come from genes linked with medical conditions that cause pain. For example, some causes of back pain, such as ankylosing spondylitis (a form of arthritis that affects the spine), have a genetic component. Although genetics might put someone at risk, epigenetics can influence whether that risk becomes a reality.
+Previous research, for example, has shown that epigenetic changes following regular physical activity are linked with positive changes in a person’s pain experience. Other research has shown that intense emotional stress can cause epigenetic changes in pain-related genes that lead to worse pain outcomes. Newer research is helping us understand how experiences of long-term stress due to social factors like neighborhood, access to healthy food and good medical care, and other social determinants of health contribute to consistent group differences (called disparities) in pain.
+Pain and the nervous system
+The human nervous system is made up of two main parts: the central nervous system and the peripheral nervous system.
+The central nervous system includes the nerve cells that make up the brain and spinal cord. Brain systems involved in the experience of pain overlap with systems involved in the experience of emotions like fear, anxiety and anger, reward and motivation, attention and memory, and sensation. There are also brain systems that contribute to relief from pain. Research shows that changes in these brain systems might contribute to chronic pain risk.
+The peripheral nervous system includes nerve cells that start in the spinal cord and extend out to other body parts. These nerve cells carry information between organs/muscles and the spinal cord, which links the information to the central nervous system.
+Peripheral sensitization
+and
+central sensitization
+are terms to describe changes in the peripheral and central nervous systems that make a person more sensitive to pain and other sensations. These changes are one way some people develop chronic pain after an injury has resolved.
+Symptoms of nervous system sensitization
+Hyperalgesia
+happens when something that is already painful to a person begins to feel even more painful to that person.
+Allodynia
+is the term for when something that previously was not painful to a person begins to feel painful. For example, a person might experience allodynia when light touches feel painful on sunburned skin.
+Global sensory hyperresponsiveness
+means the person is very sensitive to many or all sensations, including lights, noises, smells, and foods.
+Pain and the immune system
+The immune system helps protect the body from outside invaders, like bacteria and viruses, to avoid potential infection. One way the immune system provides protection is through
+inflammation
+. Inflammation is a reaction that happens when tissues are injured and damaged cells release chemicals that cause swelling and attract immune cells to “eat” the dead or damaged cells. This process helps with healing.
+In some cases, the immune system is overprotective, and inflammation lasts longer than the expected healing time. This overprotection can backfire and contribute to more and longer lasting pain. Another way that the immune system can be overprotective is called
+autoimmunity
+, which happens when the body’s immune system attacks healthy cells. Some autoimmune conditions cause chronic inflammation and pain.
+
+The endocrine system
+The endocrine system is responsible for making hormones, which are a type of chemical messenger that carries instructions throughout the body. Stress-related hormones like cortisol and adrenaline can send messages that make the feeling of pain more intense or less intense. This is partly why finding helpful ways of coping with stress can help lower pain intensity. Additionally, research shows that chronic pain may lead to changes in the way the endocrine system functions over time.
+Psychological factors that contribute to pain
+Fear and avoidance
+Imagine this scenario: Jason injured his back while lifting a box at work. His healthcare provider tells him not to lift heavy things for a few months to heal.  But after Jason’s back feels better and he is cleared to return to regular activities, he is still worried about re-injuring his back. This is an understandable
+fear
+.
+But this
+avoidance
+
+of lifting things has been affecting Jason’s work and home life. He also avoids doing his physical therapy exercises, making his muscles weaker over time. His mood and stress levels are also affected.
+This scenario is an example of the
+fear-avoidance model
+of pain. Although fear and avoidance can help protect a person from dangerous situations, they can also hinder recovery from acute pain and play a role in the transition to chronic pain. Avoidance also contributes to disability and often stops a person from doing the things they enjoyed before the pain started, which can affect a person’s mental health.
+Emotions, mood, and mental health
+It is common for pain, especially chronic pain, to affect a person’s emotions and mood. For example, many people with chronic pain describe times when they feel anger, worry, sadness, guilt, grief, defeat, hopelessness, frustration, depression, or anxiety because of their pain.
+While pain can influence a person’s mood, emotions, and mental health, those factors can also influence a person’s experience of pain. This exchange happens partly because the brain systems involved in emotions, mood, some mental health conditions, and pain overlap. Research shows that major depression, generalized anxiety disorder, post-traumatic stress disorder (PTSD), and sleep problems commonly co-occur with chronic pain. Getting necessary support to help manage the emotions, moods, and mental health conditions that co-occur with pain has been shown to improve chronic pain symptoms, such as muscle tension.
+Resilience
+Resilience
+reflects a person’s ability to bounce back from and adapt to life’s challenges, such as living with chronic pain. Being resilient does not mean a person is free from worries, anxiety, sadness, anger, or grief about their pain. These emotions are normal and understandable responses to the experience of living with pain. Instead, being resilient means using personal strengths to adapt to the challenges of pain. Examples are a person’s social supports and community, ability to solve problems, humor, use of coping strategies (e.g., deep breathing, prayer), and activities that bring more joy to their life.
+Resilience is not something a person is born with or without. Resilience is easier on some days than others and can be built and strengthened with support and practice.
+Beliefs and thoughts about pain
+Research shows that beliefs and thoughts about pain also affect a person’s experience of pain. There are some common
+thinking styles
+that co-occur with chronic pain. They often happen so naturally that they are called “automatic” thoughts.
+Ongoing concerns about pain:
+There are many of unknowns when living with chronic pain. Will it ever go away? Will it get worse? These kinds of normal concerns can lead to hopelessness, anxiety, and depression when they continue for a long time.
+“Should” statements:
+Pain can change the way a person lives their life, causing them to reduce or even stop some activities. Sometimes, a person might feel pressure to live life in the same way they did before. One might experience thoughts that could cause feelings of frustration, anger, and disappointment when expectations don’t align with reality (for example, “I should still be able to do this perfectly,” or “My pain should get better right away.”).
+Self-blame:
+If chronic pain starts after an accident or a medical condition, a person might blame themselves for the pain being triggered (for example, “If only I hadn’t driven to work that morning,”). But, predicting an accident or the onset of a medical condition is often outside of a person’s control.
+These beliefs and thinking styles don’t just come out of thin air. They come from a person’s previous experiences and can be a normal reaction to difficult circumstances. However, they can lead to negative emotions and increase pain symptoms. Getting necessary support to figure out which pain beliefs are helpful, and which might not currently apply or might get in the way of recovery, has been shown to improve chronic pain symptoms.
+Social factors that contribute to pain
+The
+social determinants of health
+include the quality of the environments where people are born, live, learn, work, play, worship, and grow older that affect health outcomes. They also include the wider set of policies and systems that shape the conditions of daily life. Some examples of social determinants of health include economic stability, access to quality education and healthcare, living in neighborhoods with safe places to walk, and having close relationships.
+Compared to our understanding of the biological and psychological factors involved in the experience of pain, less is known about the role of the social determinants of health. New research in this area is ongoing and will help address disparities in pain and pain care.
+How is pain diagnosed and treated?
+Diagnosing pain
+Pain is a subjective experience, meaning only the person experiencing pain can describe how much pain they feel and how it impacts their life. Research efforts are ongoing to find biological markers that can help clinicians diagnose
+why
+a person is experiencing pain. After learning about a person’s pain history and other medical concerns, a healthcare provider may conduct physical exams, clinical assessments, and order diagnostic tests and imaging to diagnose or rule out conditions causing or associated with pain.
+Healthcare providers can use the following tools to help identify the cause of pain, including but not limited to:
+Physical and neurological examinations
+are one of the first steps in diagnosing the cause of a person’s pain. In these exams, the doctor tests movement, reflexes, sensation, balance, and coordination. Physical examination can also detect areas of inflammation, joint or other swelling, and poor circulation.
+Laboratory tests
+(e.g., blood, urine, and cerebrospinal fluid) can help the doctor diagnose infection, cancer, problems with a person’s nutrition or hormones, and other conditions that may cause pain.
+Imaging
+, especially MRI (magnetic resonance imaging ) and CT (computer assisted tomography) scans or ultrasound can provide a look inside the body's structures and tissues.  Other examinations for particular types of pain may include tests that look into the digestive system or pelvic area like endoscopy, colonoscopy, or laparoscopy.
+Electrodiagnostic procedures like nerve conduction studies and electromyography and electrocardiography
+can also help identify and diagnose causes of pain and pain-related conditions.
+Psychological assessments
+can help identify psychological factors that might be contributing to pain and provide coping strategies.
+Treating pain
+The goal of pain management is to improve quality of life and function—allowing the person to work, attend school, and participate in daily activities. Treatment options will vary depending on the type of pain, its duration, and the person’s access to care.
+The biopsychosocial approach explained above is the best way to prevent, assess, and treat chronic pain. This approach uses an interdisciplinary team of healthcare specialists to help meet a person’s health and pain goals. Pain management teams may include pain management specialists, specialists on any other medical conditions the person may have, nurses, mental healthcare providers, physical or occupational therapists, complementary or integrative healthcare providers, and/or social workers.
+While not all pain is curable, all pain can be managed. No current treatments have been proven effective in treating all types of pain or in every person. People living with pain should work with their healthcare team to decide which treatments might be best for them. Common forms of pain management include medications, medical procedures and devices, and behavioral approaches along with physical therapy, lifestyle changes, and complementary health approaches. These treatments are often combined to try to optimize care for an individual.
+Medications and substances to treat pain
+Medications to treat pain include analgesics, such as common pain medications like acetaminophen, non-steroidal anti-inflammatory drugs (NSAIDs) such as ibuprofen and naproxen, and prescription opioids. Antiseizure and antidepressant medications can also help relieve pain for some people and may be most effective for neuropathic pain. Muscle relaxants are prescribed to reduce tension in muscles and can help manage musculoskeletal pain. Some topical pain creams and gels are also available to help with muscle and joint pain. Some people use cannabis to help treat their pain. Studies are ongoing to learn about its safety and effectiveness for pain.
+Medical procedures and devices
+Electrical stimulation of nerves or soft tissue is effective for treating pain in some people. There are several devices and procedures that provide electrical stimulation to relieve pain, including:
+TENS (transcutaneous electrical nerve stimulation)
+, which delivers low electrical pulses through the skin to the nerve fibers to help relieve pain for a short time.
+Peripheral nerve stimulation
+, in which electrodes are placed under the skin near peripheral nerves where a person experiences pain. Low intensity electrical pulses are sent to the nerve site.
+Spinal cord stimulation
+, in which electrodes are placed under the skin to send electrical pulses to the spinal cord.
+Doctors may suggest injections to block pain that is in a specific area of the body. This may include steroid injections to reduce inflammation and immune system activity, botulinum toxin (commonly known as Botox®) for chronic migraines, or trigger point injections to help relieve pain caused by knots in muscles and surrounding tissues.
+Other procedures that may help relieve pain for some people include nerve blocks, radiofrequency ablation, and surgery.
+Nerve blocks
+use a local anesthetic to temporarily interrupt the relay of pain messages between specific areas of the body and the brain. An epidural is a common nerve block used to treat pain during childbirth.
+Radiofrequency ablation
+uses a radio wave to heat up and destroy a small area of nerve tissue to stop pain signals to the brain.
+Surgery
+may be helpful for cases when pain is caused by something that can be fixed with surgery, such as endometriosis lesions in the pelvis, a tumor, or joint arthritis.
+Behavioral medicine and physical therapy
+Several behavioral and physical therapies have been found effective for treating pain in some people. These include:
+Biofeedback
+, which helps people learn how to control body functions involved in stress reactions (heart rate, breathing rate, and muscle tension).
+Cognitive-behavioral therapy
+, a form of talk therapy, helps individuals build skills to cope with the emotional toll of having pain and any associated mental health conditions. These skills may include scheduling daily activities and building sleep routines, addressing thoughts and emotions that can increase pain, relaxation strategies, and mindfulness techniques.
+Counseling
+, which can help support people living with pain through difficult times.
+Physical therapy
+, which can help a person recover after injury or surgery and manage chronic pain. This can include physical activity like low-impact cardio, mobility, flexibility, and strength training.
+Lifestyle changes
+Making changes to a person’s lifestyle by adopting a different diet or exercise routine can also help reduce pain in some people. For example, anti-inflammatory diets can help with some conditions that cause pain by reducing inflammation in the body. Exercise and physical activity can also help people with pain conditions build flexibility, muscle strength, and cardiovascular fitness. For example, research shows that regular exercise can help prevent low back pain and reduce how much back pain gets in the way of someone’s daily activities.
+Keeping your back healthy and pain-free
+Avoid movements that jolt or strain your back such as repeated pushing, pulling, or twisting or vibrating the spine.
+Exercise regularly to keep your muscles strong and flexible. Consult a physician for a list of low-impact exercises that help strengthen lower back and abdominal muscles.
+Make your health and well-being a priority through lifestyle habits like eating a nutritious diet that promotes new bone growth.
+Use ergonomically designed furniture and equipment at home and at work.
+Switch sitting positions often and periodically walk around and gently stretch your muscles to relieve tension. Put your feet on a low stool or a stack of books when sitting for a long time, especially if you have concerns about your posture or sit in a chair without enough back support.
+Wear comfortable, low-heeled shoes.
+Sleeping on your side with your knees drawn up in a fetal position can help open up the joints in the spine and relieve pressure by reducing the curvature of the spine.
+Use care in lifting heavy objects. Lift from the knees, keep a straight back, and hold objects close to the body.
+Avoid backpack overload in children. A backpack overloaded with schoolbooks and supplies can strain the back and cause muscle fatigue.
+If you smoke cigarettes, consider a plan to cut back or quit. Smoking reduces blood flow to the lower spine, which can contribute to spinal disc degeneration. Smoking also increases the risk of osteoporosis and impedes healing.
+Complementary and integrative health
+Research has shown that some complementary health approaches can improve pain in some people. These include acupuncture, chiropractic care, massage therapy, tai chi, and others.
+Pain treatments are not always successful in treating pain and may not be appropriate for everyone.
+What are the latest updates on pain?
+Scientists supported by the National Institutes of Health (
+NIH
+), including the National Institute of Neurological Disorders and Stroke (
+NINDS
+), are at the forefront of pain research. More than 20 institutes and centers at NIH support pain research and are members of the NIH Pain Consortium, which identifies, coordinates, and supports pain research initiatives, activities, and strategic planning at NIH.
+NINDS
+funds a broad range of pain research, including exploration of pain neural pathways and the mechanisms of the perception of pain, neuropathic pain, inflammatory pain, and the transition from acute to chronic pain. NINDS also supports the exploration and development of new therapies for pain, and funds research on potential new targets for pain treatments as well as clinical trials testing new pain treatments.
+The
+Helping to End Addiction Long-term
+®
+Initiative, or NIH HEAL Initiative
+®
+, is an aggressive NIH-wide effort to improve prevention and treatment strategies for opioid use disorder and enhance pain management. While many strategies are being used to reverse the opioid overdose epidemic, there is an urgent need to develop more effective treatments for pain while reducing the potential for misuse. The
+HEAL
+Initiative focuses on understanding the biological underpinnings of chronic pain and accelerating the discovery and development of novel non-addictive and effective pain treatments through the clinical pipeline.
+The
+Brain Research Through Advancing Innovative Neurotechnologies
+®
+(BRAIN) Initiative, or The BRAIN Initiative
+®
+is a national effort to accelerate the development and application of new technologies to provide unprecedented access to the inner workings of the nervous system. Scientists working with the
+BRAIN
+Initiative are studying ways to modulate neural circuitry to reduce pain.
+Research projects on pain and other disorders can be found using
+NIH RePORTER
+, a searchable database of current and past research projects supported by
+NIH
+and other federal agencies. RePORTER also includes links to publications from these projects and other resources.
+For research articles and summaries on pain, search
+PubMed
+, which contains citations from medical journals and other sites.
+
+Learn About Clinical Trials
+Clinical trials are studies that allow us to learn more about disorders and improve care. They can help connect patients with new and upcoming treatment options.
+Search Clinical Trials
+How can I or my loved one help improve care for people with pain?
+Consider participating in a clinical trial so clinicians and scientists can learn more about pain. Clinical research with human participants helps researchers learn more about a disorder and perhaps find better ways to safely detect, treat, or prevent disease.
+All types of participants are needed—those who are healthy, those who may have an illness or disease—of all different ages, sexes, races, and ethnicities to ensure that study results apply to as many people as possible, and that treatments will be safe and effective for everyone who will use them.
+For information about participating in clinical research visit
+NIH Clinical Research Trials and You
+. Learn about clinical trials currently looking for people with pain at
+Clinicaltrials.gov
+.
+Where can I find more information about pain?
+Information may be available from the following organizations and resources:
+American Academy of Family Physicians
+913-906-6000 or 800-274-2237
+American Academy of Orthopaedic Surgeons
+
+847-823-8125
+American Academy of Physical Medicine & Rehabilitation
+847-737-6000
+American Association of Neurological Surgeons
+Phone: 847-378-0500 or 888-566-2267
+American Chronic Pain Association
+913-991-4740
+American Headache Society
+856-423-0043
+Arthritis Foundation
+800-283-7800
+National Headache Foundation
+312-274-2650
+National Institute of Arthritis and Musculoskeletal and Skin Diseases (NIAMS)
+877-226-4267
+National Institute of Dental and Craniofacial Research (NIDCR)
+866-232-4528
+National Institute on Drug Abuse (NIDA)
+301-443-6441
+Learn about related topics
+Complex Regional Pain Syndrome
+Peripheral Neuropathy
+Shingles
+Trigeminal Neuralgia
+
+Order publications from the NINDS Catalog
+The
+NINDS
+Publication Catalog offers printed materials on neurological disorders for patients, health professionals, and the general public. All materials are free of charge, and a downloadable PDF version is also available for most publications.
+Order NINDS Publications
