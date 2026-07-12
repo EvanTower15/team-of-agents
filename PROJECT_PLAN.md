@@ -5,10 +5,21 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PLANNING COMPLETE — no code written yet. Next up: Phase 0 (repo scaffolding, Evan).**
+> **Status: PHASE 0 COMPLETE (2026-07-12). Next up: Phase 1 (shared RAG core + agent base, James) — Phase 4 (Ben) may also start now against stub agents. Open leftover: invite Ben & James as collaborators.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 0 results (2026-07-12)** — Scaffolding on `main` (commit `8413faf`): README stub,
+> `.gitignore`, `.env.example` (GROQ_API_KEY only), `requirements.txt` (§3 verbatim), package
+> skeleton (`src/`, `src/agents/`, `data/pt/`, `data/trainer/`). Verified
+> `pip install --dry-run -r requirements.txt` resolves clean on Python 3.13.5 / Windows.
+> Branch protection ON for `main`: PRs require 1 approving review; `enforce_admins=false`
+> so the plan owner can push status updates directly (decision D7). Note: `rough_sketch_ideas`
+> was deleted pre-commit — its content is preserved in §1 and in
+> `recovery_team_rag_architecture.svg` (committed in `2dda496`). **REMAINING USER ACTION:**
+> invite Ben & James (GitHub → Settings → Collaborators) and share the console.groq.com
+> signup link; each teammate should verify a fresh-venv install per Phase 0's done-when.
 
 ---
 
@@ -43,7 +54,7 @@ right specialist(s), the specialists answer **only from their own curated knowle
 (RAG — no free-wheeling LLM answers), and a synthesizer merges their inputs into one
 coherent "care team" response.
 
-From `rough_sketch_ideas`:
+From the original brainstorm (`rough_sketch_ideas`, since deleted — key points preserved here):
 
 - **Problem:** single LLMs hallucinate, forget instructions, and can't credibly impersonate
   multiple experts simultaneously. Separate agents with separate grounded corpora fix all three.
@@ -124,7 +135,7 @@ team-of-agents/
 ├── requirements.txt           # (Phase 0)
 ├── .env.example               # GROQ_API_KEY=  (Phase 0)
 ├── .gitignore                 # .env, chroma_db/, __pycache__, .venv (Phase 0)
-├── rough_sketch_ideas         # original brainstorm (kept for the report)
+├── recovery_team_rag_architecture.svg  # high-level design sketch (course deliverable)
 ├── data/
 │   ├── pt/                    # PT corpus: .pdf/.txt/.md files (Phase 2)
 │   ├── trainer/               # Trainer corpus (Phase 3)
@@ -335,11 +346,11 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 
 ### Phase 0 — Repo scaffolding — **Evan**
 
-- [ ] First commit on `main`: this file + `rough_sketch_ideas` + `README.md` stub +
+- [x] First commit on `main`: this file + design sketch SVG + `README.md` stub +
       `.gitignore` (`.env`, `chroma_db/`, `__pycache__/`, `.venv/`, `*.pyc`) +
       `.env.example` (`GROQ_API_KEY=`) + `requirements.txt` (§3) + empty package skeleton
       (`src/__init__.py`, `src/agents/__init__.py`, `data/pt/.gitkeep`, `data/trainer/.gitkeep`)
-- [ ] Push `main`; enable branch protection (require PR + 1 review) on GitHub
+- [x] Push `main`; enable branch protection (require PR + 1 review) on GitHub
 - [ ] Invite Ben & James as collaborators; share Groq key-signup link (console.groq.com — free)
 - **Done when:** all three teammates can clone, `pip install -r requirements.txt` succeeds
   on a fresh venv (Python 3.11+), and a PR from a test branch shows the review requirement.
@@ -459,6 +470,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D4 | 2026-07-12 | PT runs before Trainer on TEAM route; trainer receives PT draft as `peer_context` | Clinical constraints must bound the training plan, not vice versa — this IS the agent-to-agent story for the report |
 | D5 | 2026-07-12 | RED_FLAG is deterministic + canned, checked before everything | Health safety must not depend on LLM behavior; becomes the surgeon agent's entry point in Phase B |
 | D6 | 2026-07-12 | Surgeon agent deferred to Phase B | Sketch: "won't be much input from the ortho"; keep Phase A shippable |
+| D7 | 2026-07-12 | Branch protection with `enforce_admins=false` | All code changes go through PRs (1 review), but the repo admin can push PROJECT_PLAN.md status updates to `main` directly without a self-review dance |
 
 ---
 
