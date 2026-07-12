@@ -5,10 +5,28 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 2 COMPLETE (2026-07-12). Next up, parallel-safe: Phase 3 (Trainer agent, owner TBD) and Phase 4 (router + orchestrator, Ben). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
+> **Status: PHASE 3 COMPLETE (2026-07-12) — both specialists are live. Next up: Phase 4 (router + orchestrator, Ben) against the REAL agents (stubs no longer needed), then Phase 5 (Streamlit, owner TBD). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 3 results (2026-07-12)** — Trainer agent live (run by Evan+Claude; owner slot was
+> TBD). Corpus: **22 docs in `data/trainer/`** (19 txt + 3 PDF), anchored by the 118-page
+> HHS Physical Activity Guidelines 2nd ed.; CDC physical-activity-basics, NIA, MedlinePlus,
+> 8 NHS practical exercise pages (OGL), Move Your Way older-adults fact sheet. Three files
+> deliberately duplicated from `data/pt/` (collections are siloed per D3 and the
+> elderly-onboarding docs belong in both). Ingest: **536 chunks**. US Army FM 7-22 dropped —
+> armypubs.army.mil blocks scripted downloads (returns HTML, not the PDF); fetch manually
+> if ever wanted. Battery 5/5 grounded + cited: concrete 3-day program (days/sets/reps),
+> age-70 conservative on-ramp, progressive-overload guidance, the exact 150/75-minute PAG
+> aerobic guideline, and protein question → honest "no material on nutrition" (§9 #8's
+> expected behavior). **peer_context test PASSED**: given a fake PT draft (no loaded knee
+> flexion past 90°, no impact for 4 weeks), the trainer opened by restating the restrictions
+> and programmed around them — cycling warm-up, hip thrusts, seated calf raises,
+> reduced-flexion machine positioning, zero impact. Pain trap ("knee swelled after squats")
+> → "That's the physical therapist's call" deferral. Phase 4 note: both agents construct
+> with zero args (`PhysicalTherapistAgent()`, `GymTrainerAgent()`) — import and call
+> `consult()` directly in the graph nodes.
 >
 > **Phase 2 results (2026-07-12)** — PT agent live. Corpus: **29 docs in `data/pt/`**
 > (25 txt + 4 PDF — three CDC STEADI brochures + the 34-page NIA "Exercise and Physical
@@ -381,8 +399,9 @@ This is health-adjacent software. Non-negotiables, enforced in code, not vibes:
 
 Ownership from `rough_sketch_ideas`: **Evan** — Git/repo; **Ben** — Groq + agent-to-agent +
 orchestrator; **James** — PT agent + PT vector DB/RAG (+ product report).
-⚠️ **The Gym Trainer agent (Phase 3) has no owner in the sketch — assign at next team sync**
-(suggestion: Evan, since Phase 0 is light; it's also the best template-follower task).
+~~⚠️ The Gym Trainer agent (Phase 3) has no owner in the sketch~~ — resolved: Evan ran
+Phase 3 (2026-07-12). **Phase 5 (Streamlit app) still needs an owner** — suggest Ben,
+who owns the `answer_question()` API it calls.
 
 Dependency shape: `0 → 1 → {2 ∥ 3} → 4 → 5 → 6`, **but** contracts in §5 let Phase 4 start
 against stubbed agents any time after Phase 0, in parallel with 1–3.
@@ -431,14 +450,14 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 
 ### Phase 3 — Gym Trainer agent — **OWNER TBD** *(can run parallel with Phase 2)*
 
-- [ ] Corpus into `data/trainer/`. Suggested: **HHS Physical Activity Guidelines for
+- [x] Corpus into `data/trainer/`. Suggested: **HHS Physical Activity Guidelines for
       Americans, 2nd ed.** (public domain, excellent), CDC physical-activity pages, NIA
       exercise guides for older adults (nails the "elderly getting active" persona from the
-      sketch), **US Army FM 7-22** strength/conditioning chapters (public domain)
-- [ ] `src/agents/gym_trainer.py`: persona = certified-trainer voice; scope = programming,
+      sketch), ~~US Army FM 7-22~~ (dropped — armypubs blocks scripted downloads)
+- [x] `src/agents/gym_trainer.py`: persona = certified-trainer voice; scope = programming,
       progressive overload, form cues, beginner/elderly modifications; explicitly defers
       pain/injury questions to the PT; grounding rule verbatim
-- [ ] CLI smoke test on ≥ 5 battery questions, incl. one with `peer_context` set to a fake
+- [x] CLI smoke test on ≥ 5 battery questions, incl. one with `peer_context` set to a fake
       PT draft with a restriction — verify the trainer's answer respects it
 - **Done when:** same bar as Phase 2, plus the `peer_context`-respect test passes.
 

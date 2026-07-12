@@ -49,6 +49,36 @@ topic URLs to the consolidated Sports Injuries fact sheet — only the one canon
 kept here. MedlinePlus files contain only the `topic-summary` block (the rest of those
 pages is link navigation, deliberately excluded).
 
-## data/trainer/ — Gym Trainer corpus
+## data/trainer/ — Gym Trainer corpus (fetched 2026-07-12)
 
-*(Phase 3 — not yet populated.)*
+| File | Source | License |
+|---|---|---|
+| cdc_pa_benefits.txt | https://www.cdc.gov/physical-activity-basics/benefits/index.html | PD |
+| cdc_pa_guidelines_adults.txt | https://www.cdc.gov/physical-activity-basics/guidelines/adults.html | PD |
+| cdc_pa_guidelines_older_adults.txt | https://www.cdc.gov/physical-activity-basics/guidelines/older-adults.html | PD |
+| cdc_pa_measuring_intensity.txt | https://www.cdc.gov/physical-activity-basics/measuring/index.html | PD |
+| cdc_pa_adding_activity.txt | https://www.cdc.gov/physical-activity-basics/adding-adults/index.html | PD |
+| nia_get_started_exercise.txt | https://www.nia.nih.gov/health/exercise-and-physical-activity/how-older-adults-can-get-started-exercise | PD |
+| medlineplus_exercise_and_fitness.txt | https://medlineplus.gov/exerciseandphysicalfitness.html | PD |
+| medlineplus_how_much_exercise.txt | https://medlineplus.gov/howmuchexercisedoineed.html | PD |
+| medlineplus_benefits_of_exercise.txt | https://medlineplus.gov/benefitsofexercise.html | PD |
+| nhs_guidelines_adults_19_to_64.txt | https://www.nhs.uk/live-well/exercise/exercise-guidelines/physical-activity-guidelines-for-adults-aged-19-to-64/ | OGL |
+| nhs_guidelines_older_adults.txt | https://www.nhs.uk/live-well/exercise/exercise-guidelines/physical-activity-guidelines-older-adults/ | OGL |
+| nhs_strength_exercises.txt | https://www.nhs.uk/live-well/exercise/strength-and-flexibility-exercises/strength-exercises/ | OGL |
+| nhs_balance_exercises.txt | https://www.nhs.uk/live-well/exercise/strength-and-flexibility-exercises/balance-exercises/ | OGL |
+| nhs_flexibility_exercises.txt | https://www.nhs.uk/live-well/exercise/strength-and-flexibility-exercises/flexibility-exercises/ | OGL |
+| nhs_sitting_exercises.txt | https://www.nhs.uk/live-well/exercise/strength-and-flexibility-exercises/sitting-exercises/ | OGL |
+| nhs_gym_free_workouts.txt | https://www.nhs.uk/live-well/exercise/gym-free-workouts/ | OGL |
+| nhs_couch_to_5k.txt | https://www.nhs.uk/live-well/exercise/running-and-aerobic-exercises/get-running-with-couch-to-5k/ | OGL |
+| hhs_physical_activity_guidelines_2nd_ed.pdf | https://odphp.health.gov/sites/default/files/2019-09/Physical_Activity_Guidelines_2nd_edition.pdf | PD |
+| odphp_move_your_way_older_adults.pdf | https://odphp.health.gov/sites/default/files/2023-08/PAG_MYW_FactSheet_OlderAdults-508c.pdf | PD |
+| medlineplus_exercise_older_adults.txt | *(shared with data/pt/ — same file, both agents need it)* | PD |
+| nia_three_types_of_exercise.txt | *(shared with data/pt/)* | PD |
+| nia_exercise_and_older_adults.pdf | *(shared with data/pt/)* | PD |
+
+Fetch notes (2026-07-12): US Army FM 7-22 was dropped — armypubs.army.mil blocks scripted
+downloads (returns an HTML wall instead of the PDF); corpus meets the target without it.
+Three files are deliberately duplicated from `data/pt/` because collections are siloed per
+agent (decision D3) and the "elderly getting active" persona needs them in BOTH knowledge
+bases. Move Your Way fact sheets moved to `/2023-08/PAG_MYW_FactSheet_*-508c.pdf` URLs
+(the 2019 URLs 404); the adults variant still 404s and was skipped.
