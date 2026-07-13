@@ -5,10 +5,41 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 3 COMPLETE (2026-07-12) — both specialists are live. Next up: Phase 4 (router + orchestrator, Ben) against the REAL agents (stubs no longer needed), then Phase 5 (Streamlit, owner TBD). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
+> **Status: PHASE 4 COMPLETE (2026-07-12) — the team is orchestrated end-to-end. Next up: Phase 5 (Streamlit app, owner TBD — suggest Ben), then Phase 6 (eval + demo assets). Open leftover: each teammate needs their own free Groq key at console.groq.com in their local `.env`.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 4 results (2026-07-12)** — `src/router.py` + `src/orchestrator.py` live (run by
+> Evan+Claude; phase was Ben's — he should review the merged PR to own it going forward).
+> Routing battery **12/12 (100%)**, all via rules, ZERO LLM router calls:
+> | # | expected | got | conf | method |
+> |---|---|---|---|---|
+> | 1 | PT_ONLY | PT_ONLY | 0.82 | rules |
+> | 2 | TRAINER_ONLY | TRAINER_ONLY | 0.95 | rules |
+> | 3 | TEAM | TEAM | 0.90 | rules |
+> | 4 | RED_FLAG | RED_FLAG | 0.97 | rules |
+> | 5 | CLARIFY | CLARIFY | 0.70 | rules |
+> | 6 | TEAM (or PT_ONLY) | TEAM | 0.90 | rules |
+> | 7 | TRAINER_ONLY (or TEAM) | TRAINER_ONLY | 0.95 | rules |
+> | 8 | TRAINER_ONLY | TRAINER_ONLY | 0.95 | rules |
+> | 9 | PT_ONLY | PT_ONLY | 0.95 | rules |
+> | 10 | RED_FLAG | RED_FLAG | 0.97 | rules |
+> | 11 | CLARIFY | CLARIFY | 0.70 | rules |
+> | 12 | TEAM | TEAM | 0.90 | rules |
+>
+> E2E verified: TEAM run consulted PT then trainer **with the PT draft as peer_context**
+> (trace proves it), synthesized answer attributes both specialists and keeps both source
+> sets; RED_FLAG produced exactly 2 trace lines (route + canned safety response — no agent,
+> no LLM, per D5); CLARIFY returns one focused follow-up; PT_ONLY flows through synthesis
+> for consistent voice + disclaimer. **Kill-chroma test passed**: with `chroma_db/` renamed
+> away, the graph returned the fallback answer with rebuild instructions — no stack trace.
+> Implementation notes for Phase 5: import ONLY `answer_question()` from
+> `src.orchestrator`; it returns the §5.4 dict verbatim. The disclaimer/red-flag/fallback
+> texts are code constants in orchestrator.py (§7.2/§7.3). Router vague-cue guard: subjective
+> words only force CLARIFY when total cue weight <= 2, so "best exercises for a sprained
+> knee" still routes. CLI: `python -m src.orchestrator "question"` (stdout reconfigured to
+> UTF-8 — LLM output may be non-ASCII; the ASCII-only rule applies to our own prints).
 >
 > **Phase 3 results (2026-07-12)** — Trainer agent live (run by Evan+Claude; owner slot was
 > TBD). Corpus: **22 docs in `data/trainer/`** (19 txt + 3 PDF), anchored by the 118-page
@@ -463,15 +494,15 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 
 ### Phase 4 — Router + orchestrator — **Ben** *(contracts allow starting right after Phase 0 with stub agents)*
 
-- [ ] `src/router.py` per §5.3/§6.2: RED_FLAG regex check first; weighted cue scorer;
+- [x] `src/router.py` per §5.3/§6.2: RED_FLAG regex check first; weighted cue scorer;
       Groq LLM fallback (port opim-5517's robust `LABEL | confidence | reason` parser —
       it tolerates messy LLM output); thresholds 0.62 rules / 0.50 clarify as starting values
-- [ ] `src/orchestrator.py` per §5.4/§6.3: LangGraph nodes `route_question`, `consult_pt`,
+- [x] `src/orchestrator.py` per §5.4/§6.3: LangGraph nodes `route_question`, `consult_pt`,
       `consult_trainer`, `synthesize_team_answer`, `safety_response`, `ask_clarification`,
       `fallback_handler`; conditional edges per §6.1; TEAM route passes PT draft as trainer's
       `peer_context`; disclaimer constant appended in code
-- [ ] `__main__` CLI: `python -m src.orchestrator "question"` prints route, trace, answer
-- [ ] Run the FULL §9 battery; record route + confidence + method for every question in
+- [x] `__main__` CLI: `python -m src.orchestrator "question"` prints route, trace, answer
+- [x] Run the FULL §9 battery; record route + confidence + method for every question in
       the phase-results block; tune cue weights until routing table is ≥ 90% correct
 - **Done when:** battery routing ≥ 90%, TEAM questions produce answers citing both agents,
   a RED_FLAG question never reaches an LLM, and killing the Chroma dir produces a graceful
