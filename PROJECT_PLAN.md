@@ -124,6 +124,9 @@
    change a contract, update this file in the same PR and flag it in the PR description.
 3. **When you finish a phase:**
    - Tick the checkboxes in your phase's task list ([§8](#8-phase-plan)).
+   - If your phase changed **how** something works (not just added to it), update the
+     matching section of [Capabilities_Overview.md](Capabilities_Overview.md) — that document
+     is the team's deep-dive explainer and the presentation's source of truth.
    - Append a **"Phase N results (YYYY-MM-DD)"** block under the Status line at the top:
      what was built, key facts discovered (gotchas, versions, data quirks), anything the
      next phase needs to know. Model: 3–10 dense lines. Never delete old result blocks.

@@ -8,6 +8,11 @@ Surgeon agent arrives in Phase B) — each answering only from its own curated k
 > **Start here → [PROJECT_PLAN.md](PROJECT_PLAN.md)** — the living working document with
 > current status, architecture, module contracts, and the phase plan. Read its §0 before
 > making changes.
+>
+> **Then read → [Capabilities_Overview.md](Capabilities_Overview.md)** — an in-depth
+> explanation of how every built part works and why (RAG core, agents, router,
+> orchestrator, safety design), written for teammates and for whoever builds the
+> presentation.
 
 ## Setup
 
