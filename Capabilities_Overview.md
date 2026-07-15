@@ -290,18 +290,28 @@ live: `classify()` returns CLARIFY for every non-RED_FLAG question without a key
 there's nothing left to resolve it locally. This makes each teammate's own Groq key a harder
 prerequisite than it was through Phase 4b.
 
-**What's actually been verified vs. still pending:** without a live Groq key available in
-the dev environment, the parser (`_parse_llm_response`) was unit-tested directly against
+**What's been verified:** the parser (`_parse_llm_response`) was unit-tested against
 synthetic `LABEL | confidence | specialists | reason` strings — including malformed ones —
 and confirmed to produce correct `scores`; `classify()` was confirmed to still resolve
 RED_FLAG via regex and to degrade to CLARIFY (not crash) on an empty question or a missing
-key. **Not yet verified:** actual routing accuracy against the §9 battery with a real key.
-Whoever configures a key first should run:
+key. **The full §9 battery has now been run live** (2026-07-15, with a real Groq key):
+**13/15 correct.** One real TEAM chain was run end-to-end and produced a real synthesized
+answer that correctly said the surgeon's post-op guidance "takes precedence" — D10's
+priority rule showing up in an actual model output.
 
-```
-python -m src.router "Is soreness two days after a workout normal or an injury?"
-python -m src.router "My surgeon cleared me for full weight-bearing 6 weeks after ACL reconstruction - how do I safely get back into leg training?"
-```
+**Two real accuracy gaps found, not yet fixed:**
+1. "What's the best gym?" resolves to `TRAINER_ONLY` (0.90) instead of `CLARIFY`. The old
+   regex router had an explicit vague-word guard for exactly this kind of question; the LLM
+   is more willing to just answer a subjective/underspecified question than ask for
+   clarification.
+2. A question with explicit surgeon-relevant language ("my surgeon cleared me for full
+   weight-bearing 6 weeks after ACL reconstruction...") under-chains to PT+trainer only,
+   missing the surgeon — even though those are precisely the phrases the old
+   `_SURGEON_CUES` regex list was built to catch.
+
+Likely fix for both: prompt-level (few-shot examples, or an explicit instruction that
+mentioning a specific surgery/clearance/post-op milestone should flag 'surgeon' even when
+the question is really about returning to training) — not done yet, flagged for follow-up.
 
 ---
 
@@ -391,25 +401,36 @@ pip install -r requirements.txt
 python -m src.ingest --agent pt
 python -m src.ingest --agent trainer
 python -m src.ingest --agent surgeon
+streamlit run app.py
 ```
+
+`app.py` (Phase 5) is a chat UI over `answer_question()` — nothing else. Per-message it shows
+a route chip, colored badges for whichever specialist(s) were consulted (🦴/🩺/🏋️), an
+expander with per-agent sources, an expander with any extracted binding restrictions
+(Phase 4b's `constraints` field), and — toggled on in the sidebar — the raw routing/execution
+trace. The sidebar also has one rebuild button per knowledge base. This is the fastest way to
+demo all three killer artifacts below live, or they can be run standalone via the CLIs.
 
 **The three killer artifacts** (Phase 6 will screenshot these; they demo the thesis):
 
-1. **Constraint handoff (TEAM):** `python -m src.orchestrator "I'm 8 weeks post-meniscus
-   surgery - how do I get back into lifting safely?"` — point at the trace line
-   `with PT draft as peer_context`, then at the trainer's substitutions respecting the PT's
-   restrictions.
+1. **Constraint handoff (TEAM, now three-way):** `python -m src.orchestrator "I'm 8 weeks
+   post-meniscus surgery - how do I get back into lifting safely?"` — real live trace:
+   `consult_surgeon (6 sources) → consult_pt (5 sources, with surgeon draft as
+   peer_context) → consult_trainer (4 sources, with 2 upstream draft(s) as peer_context) →
+   synthesize (merged 3 drafts)`. The synthesized answer explicitly says the surgeon's
+   post-op guidance "takes precedence" — D10's priority rule in a real model output.
 2. **Safety short-circuit (RED_FLAG):** `python -m src.orchestrator "My calf is swollen,
    hot, and I have sharp pain when I stand."` — two trace lines, no agent, no LLM, fixed
-   urgent-care response.
+   urgent-care response. Confirmed live, unaffected by the router redesign.
 3. **Honest ignorance (grounding):** `python -m src.agents.gym_trainer "How much protein
    should I eat to build muscle?"` — "I don't have material on nutrition specifics" instead
    of a confident invented number. This is the anti-hallucination story in one screenshot.
 
-The full battery (12 original + 3 surgeon/three-way rows) is §9 of PROJECT_PLAN.md; the
-Phase 4 results block has the original measured routing results (regex-era). **The battery
-has not yet been re-run against the Phase 4c LLM-primary router with a real Groq key** — do
-that before relying on these as current numbers.
+The full battery (12 original + 3 surgeon/three-way rows) is §9 of PROJECT_PLAN.md. **Now
+re-run live against the Phase 4c LLM-primary router (2026-07-15): 13/15 correct** — see §6
+above for the two accuracy gaps found (a vague-question CLARIFY miss, and a three-specialist
+question that under-chains to two). The original Phase 4 results block still has the
+regex-era numbers for historical comparison.
 
 ---
 
@@ -424,10 +445,16 @@ that before relying on these as current numbers.
   robustness to phrasing. **Without a Groq key configured, routing degrades to CLARIFY for
   everything** (verified) except RED_FLAG, which stays regex. RED_FLAG patterns can still
   false-positive (by design — err toward safety).
-- **Router's real-world routing accuracy is unverified.** The Phase 4c redesign was tested
-  structurally (parser unit tests, graph-topology monkeypatch tests) but not against live
-  Groq responses — nobody has run the §9 battery for real since the redesign landed.
-- **No web UI yet** (Phase 5) and **no frozen evaluation table yet** (Phase 6).
+- **Router accuracy, measured live: 13/15 on the §9 battery (2026-07-15).** Two known,
+  unfixed gaps: a vague subjective question ("what's the best gym?") resolves to
+  `TRAINER_ONLY` instead of `CLARIFY`; a question with explicit surgeon-relevant language
+  under-chains to PT+trainer only, missing the surgeon. Both are prompt-tuning follow-ups,
+  not structural bugs — see §6.
+- **The Streamlit UI (Phase 5) has been verified live** via Streamlit's `AppTest` (real
+  question in, real synthesized answer with correct badges/route chip/sources out, zero
+  exceptions) — but `AppTest` doesn't render actual CSS/layout, so a human should still
+  click through it once in a real browser before the video demo. **No frozen evaluation
+  table yet** (Phase 6).
 - **RED_FLAG doesn't consult the surgeon agent.** The Orthopedic Surgeon agent exists now
   (Phase 4b, pulled forward from the original Phase B plan), but RED_FLAG's canned
   "contact your surgeon" response deliberately stays deterministic/no-agent per D5 — §11 of
