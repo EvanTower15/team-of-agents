@@ -4,43 +4,48 @@
 > [PROJECT_PLAN.md](PROJECT_PLAN.md) tracks *what* was built, in what order, and what's next.
 > This document explains *how* each part works and *why* it was designed that way, in enough
 > depth that you can confidently explain (and demo) the parts you didn't personally build.
-> Everything below reflects the system as of Phase 4 (2026-07-12): both specialists live and
-> orchestrated end-to-end. Update this document when a phase changes how something works.
+> Everything below reflects the system as of Phase 4c (2026-07-14): three specialists live
+> and orchestrated end-to-end, with structured constraint handoff between them, and the
+> router is now LLM-primary rather than regex-driven. Update this document when a phase
+> changes how something works.
 
 ---
 
 ## 1. The product in one paragraph
 
 A user recovering from an injury asks one chat interface a question. Behind it, a **router**
-decides which specialist(s) should answer — a **Physical Therapist agent**, a **Gym Trainer
-agent**, or both in sequence. Each specialist answers **only from its own curated library of
-vetted documents** (this is Retrieval-Augmented Generation — RAG), and a **synthesizer**
-merges their drafts into one coherent "care team" response with source citations and a
-standing disclaimer. Questions that look like medical emergencies never reach an AI model at
-all — they get a fixed safety response. The core thesis: one general-purpose LLM hallucinates
-and can't credibly be two experts at once; two narrow agents, each grounded in its own
-knowledge base and coordinated by an orchestrator, can.
+decides which specialist(s) should answer — an **Orthopedic Surgeon agent**, a **Physical
+Therapist agent**, a **Gym Trainer agent**, or a chain of them. Each specialist answers
+**only from its own curated library of vetted documents** (this is Retrieval-Augmented
+Generation — RAG), and a **synthesizer** merges their drafts into one coherent "care team"
+response with source citations and a standing disclaimer. Questions that look like medical
+emergencies never reach an AI model at all — they get a fixed safety response. The core
+thesis: one general-purpose LLM hallucinates and can't credibly be three experts at once;
+narrow agents, each grounded in its own knowledge base and coordinated by an orchestrator,
+can.
 
 ```
                             ┌──────────────────────────┐
         user question ────► │   router (src/router.py) │
                             └────────────┬─────────────┘
-        ┌──────────────┬─────────────────┼───────────────┬──────────────┐
-        ▼              ▼                 ▼               ▼              ▼
-     PT_ONLY      TRAINER_ONLY         TEAM          RED_FLAG        CLARIFY
-        │              │          PT first, then        │              │
-        ▼              ▼          trainer w/ PT's       ▼              ▼
-   PT agent      Trainer agent    draft as context   canned safety  one focused
-   (pt_docs)     (trainer_docs)   (agent-to-agent)   response       follow-up ?
-        │              │                 │           (no LLM ever)     │
-        └──────────────┴───────┬─────────┘               │             │
-                               ▼                         │             │
-                    synthesize_team_answer               │             │
-                    (attributes each specialist,         │             │
-                     PT wins on safety conflicts)        │             │
-                               │                         │             │
-                               ▼                         ▼             ▼
-                        final answer + [source: ...] citations + disclaimer
+   ┌───────────┬────────────┬────────────┼────────────┬───────────────┐
+   ▼           ▼            ▼            ▼            ▼               ▼
+PT_ONLY   TRAINER_ONLY   SURGEON        TEAM       RED_FLAG        CLARIFY
+   │           │            │      surgeon → PT →      │              │
+   ▼           ▼            ▼      trainer, whichever  ▼              ▼
+PT agent  Trainer agent  Surgeon   cues fired,      canned safety  one focused
+(pt_docs) (trainer_docs) agent     each passing      response      follow-up ?
+   │           │       (surgeon_docs) structured    (no LLM ever)     │
+   │           │            │      constraints down     │             │
+   └───────────┴─────┬──────┴──────────┘                │             │
+                      ▼                                 │             │
+           synthesize_team_answer                        │             │
+           (attributes each specialist consulted;        │             │
+            surgeon wins post-op/hardware conflicts,      │             │
+            PT wins everything else safety-related)      │             │
+                      │                                  │             │
+                      ▼                                  ▼             ▼
+               final answer + [source: ...] citations + disclaimer
 ```
 
 ---
@@ -49,6 +54,13 @@ knowledge base and coordinated by an orchestrator, can.
 
 The fastest way to understand the system is to follow one question through it. This is the
 actual execution trace from Phase 4 testing, not a mock-up:
+
+> **Note (Phase 4c):** this trace is from before the router redesign — at the time, routing
+> was regex/rules-based, hence `method: rules` and "no LLM call" below. Since Phase 4c the
+> router is LLM-primary (§6), so re-running this exact question today would show
+> `method: llm` and cost one Groq call for the routing step itself; the rest of the flow
+> (PT-first, trainer gets PT's draft as `peer_context`, synthesis) is unchanged. Kept as-is
+> for the historical record rather than rewritten.
 
 **Question:** *"I'm 8 weeks post-meniscus surgery — how do I get back into lifting safely?"*
 
@@ -61,10 +73,11 @@ synthesize_team_answer: merged 2 draft(s)
 
 What happened at each step:
 
-1. **Routing.** The router's keyword scorer found rehab cues ("post-…surgery" and "meniscus",
-   weight 2 each = 4) and training cues ("lifting", weight 2). Both specialists signalled and
-   neither dominated, so the route is **TEAM** with confidence 0.90 — decided by
-   deterministic rules in microseconds, no LLM call.
+1. **Routing (as it worked pre-Phase-4c — see the note above).** The router's keyword scorer
+   found rehab cues ("post-…surgery" and "meniscus", weight 2 each = 4) and training cues
+   ("lifting", weight 2). Both specialists signalled and neither dominated, so the route is
+   **TEAM** with confidence 0.90 — decided by deterministic rules in microseconds, no LLM
+   call.
 2. **PT consults first.** The PT agent embedded the question, pulled its 6 most relevant
    passages from the `pt_docs` collection (they came from 5 distinct documents), and wrote a
    draft in its licensed-DPT persona — grounded ONLY in those passages.
@@ -92,19 +105,22 @@ Each specialist has its own corpus folder and its own vector-database collection
 documents and vice versa. The silo is the anti-"jack of all trades" mechanism — each agent's
 expertise boundary is enforced by what it can see, not by prompt promises.
 
-| | Physical Therapist | Gym Trainer |
-|---|---|---|
-| Folder → collection | `data/pt/` → `pt_docs` | `data/trainer/` → `trainer_docs` |
-| Size | 29 documents (25 txt + 4 PDF), 203 chunks | 22 documents (19 txt + 3 PDF), 536 chunks |
-| Anchor documents | NIA "Exercise & Physical Activity for Older Adults" guide (34-page PDF), 3 CDC STEADI fall-prevention brochures | HHS "Physical Activity Guidelines for Americans, 2nd ed." (118-page PDF) |
-| Text sources | MedlinePlus injury topics, NIAMS fact sheets, NINDS pain page, NHS rehab pages | CDC physical-activity-basics, NIA get-started guides, MedlinePlus, 8 practical NHS exercise pages (strength/balance/flexibility/sitting/Couch-to-5K) |
+| | Physical Therapist | Gym Trainer | Orthopedic Surgeon |
+|---|---|---|---|
+| Folder → collection | `data/pt/` → `pt_docs` | `data/trainer/` → `trainer_docs` | `data/surgeon/` → `surgeon_docs` |
+| Size | 29 documents (25 txt + 4 PDF), 203 chunks | 22 documents (19 txt + 3 PDF), 536 chunks | 18 documents (all txt) |
+| Anchor documents | NIA "Exercise & Physical Activity for Older Adults" guide (34-page PDF), 3 CDC STEADI fall-prevention brochures | HHS "Physical Activity Guidelines for Americans, 2nd ed." (118-page PDF) | MedlinePlus post-op/discharge instruction set (wound care, crutches, ACL/rotator-cuff/knee-arthroscopy discharge) |
+| Text sources | MedlinePlus injury topics, NIAMS fact sheets, NINDS pain page, NHS rehab pages | CDC physical-activity-basics, NIA get-started guides, MedlinePlus, 8 practical NHS exercise pages (strength/balance/flexibility/sitting/Couch-to-5K) | MedlinePlus encyclopedia/patient-instructions pages, NIAMS hip-replacement page, 3 NHS post-surgery recovery pages |
 
 Sourcing rules (§7.5 of the plan): US-government content is public domain; NHS pages are
 under the Open Government Licence v3.0 (reuse with attribution). Every file's URL, license,
 and fetch date is logged in [data/SOURCES.md](data/SOURCES.md), and every text file carries a
 title/source/license/date header — which also gives the LLM provenance context when a chunk
-is retrieved. Three elderly-onboarding documents appear in BOTH corpora on purpose: the
-collections are siloed, so content both specialists need must exist in both.
+is retrieved. Three elderly-onboarding documents appear in BOTH the PT and trainer corpora on
+purpose: the collections are siloed, so content both specialists need must exist in both. The
+surgeon corpus deliberately uses MedlinePlus's *procedure/discharge-instruction* pages
+(`ency/article/...`, `ency/patientinstructions/...`) rather than the *topic-summary* pages
+(`kneereplacement.html`, etc.) already used in `data/pt/` — distinct content, no duplication.
 
 **Why the corpora are "pre-curated" files in git** rather than live-scraped at runtime:
 reproducibility (everyone ingests identical bytes), licensing review happens once at commit
@@ -185,10 +201,29 @@ Three design properties matter more than the plumbing:
 3. **`peer_context` is the agent-to-agent channel.** When present, the base injects the
    teammate's draft with the framing *"Treat any restrictions or safety constraints in their
    draft as binding — build on them, never contradict them."* The orchestrator uses this on
-   the TEAM route (PT draft → trainer).
+   the TEAM route, chaining most-restrictive-first (surgeon → PT → trainer).
 
-### The two personas
+### Structured constraints (`constraints.py`, Phase 4b)
 
+Free-text `peer_context` works, but it makes the downstream specialist's LLM parse
+restrictions out of prose and hope it caught them all. `extract_constraints(answer)` makes
+one extra LLM call to pull a short structured list —
+`[{"body_part", "restriction", "duration"}, ...]` — out of a specialist's draft.
+`format_constraints_block()` renders that list as a labeled bullet block ("BINDING
+RESTRICTIONS FROM SURGEON: ...") that gets **prepended** to the same `peer_context` string
+the next specialist already accepts — no change to the frozen `consult()` signature (§5.2).
+Extraction never raises: a parse failure or LLM hiccup degrades to `[]`, and the raw draft
+still carries the restriction in prose either way. The structured list also flows out through
+`answer_question()`'s additive `constraints` field for a future UI to render as a checklist.
+
+### The three personas
+
+- **`orthopedic_surgeon.py`** (Phase 4b) — orthopedic-surgeon voice. Scope: post-operative
+  protocols, weight-bearing status and mobility-aid timelines, hardware (pins/plates/screws)
+  precautions, wound/incision care basics, recovery milestones by week or month. Hard rules:
+  defers to the *patient's own surgeon's* individual orders when they conflict with general
+  material; states plainly that its restrictions are binding on PT/trainer plans, not the
+  reverse; declines programming/nutrition/day-to-day pain-management questions.
 - **`physical_therapist.py`** — licensed-DPT voice. Scope: rehab progressions, normal
   soreness vs. warning-sign pain, range-of-motion/mobility work, when to regress an
   exercise. Hard rules: never diagnose (explain what the context says, refer to a
@@ -198,8 +233,8 @@ Three design properties matter more than the plumbing:
 - **`gym_trainer.py`** — certified-trainer voice. Scope: programming (days/sets/reps),
   progressive overload, form cues, beginner and older-adult modifications. Hard rules:
   pain/injury assessment is "the physical therapist's call" (tested with a swollen-knee
-  question — it deferred); any PT guidance provided is binding and substitutions must be
-  named; start conservatively and state how to progress.
+  question — it deferred); any PT or surgeon guidance provided is binding and substitutions
+  must be named; start conservatively and state how to progress.
 
 Each agent is independently testable from the command line, which is the fastest demo of a
 single specialist:
@@ -207,6 +242,7 @@ single specialist:
 ```
 python -m src.agents.physical_therapist "My knee aches after squats - normal?"
 python -m src.agents.gym_trainer "Give me a simple 3-day beginner strength program."
+python -m src.agents.orthopedic_surgeon "How long until I can put weight on my knee after knee arthroscopy?"
 ```
 
 ---
@@ -215,45 +251,56 @@ python -m src.agents.gym_trainer "Give me a simple 3-day beginner strength progr
 
 The router answers one question: *which specialist(s), if any, should see this?* It returns
 a `RouteDecision` — label, confidence (0–1), a human-readable reason, which method decided
-(`rules` or `llm`), and the raw cue scores for debugging.
+(`rules` or `llm`), and `scores` — `{"pt", "trainer", "surgeon"}`, each 0 or 1, marking which
+specialist(s) apply. This is what the orchestrator reads to decide who to chain on TEAM.
 
-It works in three stages, cheapest first:
+**Redesigned in Phase 4c to be LLM-primary** (decision D11) — this supersedes the
+Phase 4/4b design, which used a weighted regex keyword scorer (rehab words for the PT,
+training words for the trainer, post-op words for the surgeon) and only fell back to an LLM
+when the rules were unsure. That regex layer kept needing hand-patches as phrasing varied —
+the bug that triggered the redesign: a cue meant to catch "stitches out" didn't match the
+equally natural "when do my stitches come out." Rather than keep patching individual
+patterns, the weighted scorer was deleted outright.
 
-**Stage 1 — RED_FLAG regexes, checked before everything.** A fixed list of urgent-care
-patterns: severe/sharp pain, numbness or tingling, can't bear weight, visible deformity,
-fever, chest pain, a hot or swollen calf (the DVT signature), "felt a pop", a joint that
-buckles or gives way, wound/incision problems. Any match ends routing immediately at
-confidence 0.97. This stage is deliberately **not** an LLM (decision D5): a safety gate must
-behave identically every single time.
+It now works in two stages:
 
-**Stage 2 — weighted keyword scoring.** Two cue lists — rehab/pain words for the PT
-(sprain, rehab, post-op, range of motion, meniscus…) and training words for the trainer
-(program, sets, reps, cardio, beginner, progressive overload…) — each with a weight of 1–3.
-The scores decide:
+**Stage 1 — RED_FLAG regexes, checked before everything, unchanged.** A fixed list of
+urgent-care patterns: severe/sharp pain, numbness or tingling, can't bear weight, visible
+deformity, fever, chest pain, a hot or swollen calf (the DVT signature), "felt a pop", a
+joint that buckles or gives way, wound/incision problems. Any match ends routing immediately
+at confidence 0.97. This is the **only** regex left in the router, deliberately (decision
+D5): a safety gate must behave identically every single time, which an LLM can't guarantee.
 
-- Only one side scored → that specialist, confidence scaled by cue strength.
-- **Both sides scored and neither holds more than 70% of the total → TEAM.** Worked
-  example: "Can I do cardio while rehabbing an ankle sprain?" scores PT 4 (rehab 2,
-  sprain 2) vs trainer 2 (cardio 2); dominance 4/6 ≈ 0.67 ≤ 0.70 → TEAM.
-- One side scored but the other dominates → the dominant specialist alone.
-- Nothing scored, or the question is ≤2 words, or it's subjective ("best", "help") with
-  almost no domain signal → **CLARIFY**. The vague-word guard only fires when total cue
-  weight is ≤2, so "What's the best gym?" clarifies but "best exercises for a sprained
-  knee" still routes.
+**Stage 2 — one Groq/Llama call decides everything else.** The prompt asks the model for two
+things at once: a single overall label (`PT_ONLY` / `TRAINER_ONLY` / `SURGEON` / `TEAM` /
+`CLARIFY`) and which specialist(s) are relevant (any subset of `pt`, `trainer`, `surgeon`).
+The response is parsed by a deliberately tolerant parser (scans the whole response for a
+valid label and an in-range confidence, survives messy formatting) into the same `scores`
+shape the orchestrator's TEAM chain already consumed in Phase 4b — so `orchestrator.py`
+needed **zero changes** for this redesign, only `router.py` did. A model that says `TEAM`
+but names fewer than 2 specialists is treated as inconsistent and defaults to consulting all
+three, rather than silently under-chaining. If the model's confidence is below 0.50, or the
+LLM call fails entirely (no key, network error), the route collapses to CLARIFY — same
+"never guess, never crash" posture as the rest of the codebase.
 
-**Stage 3 — LLM fallback, rarely reached.** If the rules' confidence is below 0.62, a
-Groq/Llama classifier picks the label. Its output is parsed by a deliberately tolerant
-parser (scans for the first valid label token and the first in-range decimal, survives
-messy output). If even the LLM's confidence is below 0.50, the route collapses to CLARIFY —
-when in doubt, ask instead of guessing.
+**Trade-off, explicit:** routing is no longer free. Every non-RED_FLAG question now costs a
+Groq call and takes real latency, instead of resolving instantly from local keyword weights.
+More importantly, there is now **no rules fallback** if `GROQ_API_KEY` isn't set — verified
+live: `classify()` returns CLARIFY for every non-RED_FLAG question without a key, since
+there's nothing left to resolve it locally. This makes each teammate's own Groq key a harder
+prerequisite than it was through Phase 4b.
 
-**Measured result (the plan's §9 battery):** 12/12 questions routed correctly, every one by
-Stage 1 or 2 — zero LLM calls, all confidences ≥ 0.70. Routing is effectively free and fully
-explainable, which is a good presentation talking point: `RouteDecision.scores` lets you
-show exactly *why* any question went where it did. Try it live:
+**What's actually been verified vs. still pending:** without a live Groq key available in
+the dev environment, the parser (`_parse_llm_response`) was unit-tested directly against
+synthetic `LABEL | confidence | specialists | reason` strings — including malformed ones —
+and confirmed to produce correct `scores`; `classify()` was confirmed to still resolve
+RED_FLAG via regex and to degrade to CLARIFY (not crash) on an empty question or a missing
+key. **Not yet verified:** actual routing accuracy against the §9 battery with a real key.
+Whoever configures a key first should run:
 
 ```
 python -m src.router "Is soreness two days after a workout normal or an injury?"
+python -m src.router "My surgeon cleared me for full weight-bearing 6 weeks after ACL reconstruction - how do I safely get back into leg training?"
 ```
 
 ---
@@ -264,22 +311,32 @@ The orchestrator is a **LangGraph state machine**. Mental model: a flowchart whe
 (node) is a Python function that reads a shared state dictionary and returns updates to it,
 and the arrows (edges) can branch on the state's contents.
 
-**The shared state (`TeamState`)** carries the question, the routing decision, each
-specialist's `consult()` result, the final answer, per-specialist sources, and
-`execution_trace` — a list every node appends one line to, which is how we can always show
-exactly which path a question took (the trace in §2 is this field, verbatim).
+**The shared state (`TeamState`)** carries the question, the routing decision (including
+`route_scores`, Phase 4b — the same `{"pt", "trainer", "surgeon"}` dict the router produced),
+each specialist's `consult()` result and extracted constraints, the final answer,
+per-specialist sources, and `execution_trace` — a list every node appends one line to, which
+is how we can always show exactly which path a question took (the trace in §2 is this field,
+verbatim).
 
 **The nodes:**
 
 | Node | What it does |
 |---|---|
-| `route_question` | Calls the router; writes label/confidence/reasoning into state |
-| `consult_pt` | `PhysicalTherapistAgent().consult(question)` |
-| `consult_trainer` | Same for the trainer; **on the TEAM route it passes the PT's draft as `peer_context`** |
-| `synthesize_team_answer` | One LLM call that merges the usable drafts: attribute each specialist, keep citations, surface conflicts with PT winning on safety, add nothing new. Single-agent routes also pass through here so every answer has a consistent voice |
+| `route_question` | Calls the router; writes label/confidence/reasoning/`route_scores` into state |
+| `consult_surgeon` | `OrthopedicSurgeonAgent().consult(question)`, then `extract_constraints()` on its own draft (Phase 4b) |
+| `consult_pt` | `PhysicalTherapistAgent().consult(question)`; **on TEAM, if the surgeon already ran, receives its structured constraints + draft as `peer_context`** |
+| `consult_trainer` | Same for the trainer; **on TEAM, receives whichever upstream specialists ran (surgeon and/or PT), each as a constraints block + draft** |
+| `synthesize_team_answer` | One LLM call that merges the usable drafts: attribute each specialist, keep citations, surface conflicts — surgeon wins on post-op/hardware/weight-bearing, PT wins otherwise (Phase 4b) — add nothing new. Single-agent routes also pass through here so every answer has a consistent voice |
 | `safety_response` | Returns the fixed RED_FLAG text. No retrieval, no LLM — nothing in this node can fail or vary |
 | `ask_clarification` | One focused follow-up question (LLM, with a canned fallback if the LLM is down) |
-| `fallback_handler` | Terminal for dead ends: apologizes, says what went wrong, prints the rebuild commands |
+| `fallback_handler` | Terminal for dead ends: apologizes, says what went wrong, prints the rebuild commands (now including `--agent surgeon`) |
+
+**Which specialists actually get consulted on TEAM (Phase 4b)** is decided by `route_scores`,
+not a fixed pair: the conditional edges after `route_question`, `consult_surgeon`, and
+`consult_pt` each check whether the *next* specialist's bucket scored above zero before
+routing to it. A PT+trainer TEAM question (no surgeon cues) skips `consult_surgeon`
+entirely — the chain is exactly as long as the question calls for, never padded with an
+irrelevant specialist.
 
 **Error philosophy (inherited from the opim-5517 reference project):** nodes never raise.
 Agents capture errors into their result dict; conditional edges inspect state and steer dead
@@ -326,12 +383,14 @@ Worth presenting as a stack — each layer catches what the previous one can't:
 ## 9. Demo guide
 
 **Setup from a fresh clone** (each person needs their own free Groq key from
-console.groq.com in `.env`):
+console.groq.com in `.env` — as of Phase 4c this is required even to get routing to work,
+not just to get specialist answers):
 
 ```
 pip install -r requirements.txt
 python -m src.ingest --agent pt
 python -m src.ingest --agent trainer
+python -m src.ingest --agent surgeon
 ```
 
 **The three killer artifacts** (Phase 6 will screenshot these; they demo the thesis):
@@ -347,8 +406,10 @@ python -m src.ingest --agent trainer
    should I eat to build muscle?"` — "I don't have material on nutrition specifics" instead
    of a confident invented number. This is the anti-hallucination story in one screenshot.
 
-The full 12-question expected-behavior table is §9 of PROJECT_PLAN.md; the measured routing
-results are in its Phase 4 results block.
+The full battery (12 original + 3 surgeon/three-way rows) is §9 of PROJECT_PLAN.md; the
+Phase 4 results block has the original measured routing results (regex-era). **The battery
+has not yet been re-run against the Phase 4c LLM-primary router with a real Groq key** — do
+that before relying on these as current numbers.
 
 ---
 
@@ -358,13 +419,19 @@ results are in its Phase 4 results block.
   (privacy-by-design for Phase A; personalization is a Phase B discussion).
 - **Naive retrieval.** Top-k vector similarity only — no hybrid keyword search, reranking,
   or metadata filters.
-- **Routing is keyword-driven.** Excellent on the battery, but adversarial or oddly-phrased
-  questions fall to the LLM classifier; RED_FLAG patterns can false-positive (by design —
-  err toward safety).
-- **No orthopedic surgeon agent yet** (Phase B). RED_FLAG's canned "contact your surgeon"
-  response is its placeholder, and the plan's §11 documents exactly where the surgeon slots
-  in (new corpus + subclass + route + graph node; synthesis and UI already handle N agents).
+- **Routing now costs an LLM call (Phase 4c).** Every non-RED_FLAG question is classified by
+  Groq rather than free local keyword rules — this trades routing speed/cost/determinism for
+  robustness to phrasing. **Without a Groq key configured, routing degrades to CLARIFY for
+  everything** (verified) except RED_FLAG, which stays regex. RED_FLAG patterns can still
+  false-positive (by design — err toward safety).
+- **Router's real-world routing accuracy is unverified.** The Phase 4c redesign was tested
+  structurally (parser unit tests, graph-topology monkeypatch tests) but not against live
+  Groq responses — nobody has run the §9 battery for real since the redesign landed.
 - **No web UI yet** (Phase 5) and **no frozen evaluation table yet** (Phase 6).
+- **RED_FLAG doesn't consult the surgeon agent.** The Orthopedic Surgeon agent exists now
+  (Phase 4b, pulled forward from the original Phase B plan), but RED_FLAG's canned
+  "contact your surgeon" response deliberately stays deterministic/no-agent per D5 — §11 of
+  the plan documents this as open, not forgotten.
 - **Corpus breadth ≠ clinical depth.** Public-domain patient-education material, not
   clinical protocols — appropriate for an educational support tool, and the disclaimer
   exists precisely because of this.
@@ -386,10 +453,14 @@ results are in its Phase 4 results block.
   (functions) + conditional edges (branching) over a shared state dict. Gives us the
   guaranteed-terminating flowchart in §1 and the execution trace.
 - **Groq:** LLM API service (free tier) running Llama 3.3 70B; used for agent answers,
-  synthesis, clarification, and the rare routing fallback.
+  synthesis, clarification, and (since Phase 4c) every routing decision except RED_FLAG.
 - **Orchestrator:** the component that sequences router → specialists → synthesizer and
   handles every failure path.
-- **peer_context:** our agent-to-agent handoff — one specialist's draft passed into
-  another's prompt as binding constraints.
+- **peer_context:** our agent-to-agent handoff — one specialist's draft (plus, since
+  Phase 4b, its structured constraints) passed into another's prompt as binding restrictions.
+- **Structured constraints (Phase 4b):** a short list of `{body_part, restriction, duration}`
+  extracted from a specialist's draft (`extract_constraints()`), so a downstream specialist
+  doesn't have to parse restrictions out of free prose. Rides alongside, not instead of, the
+  raw draft in `peer_context`.
 - **Red flag:** a symptom pattern that warrants urgent medical evaluation rather than
-  advice from this tool.
+  advice from this tool. The one route still decided by regex, not the LLM (D5).

@@ -23,10 +23,11 @@ from src.rag_core import clear_collection, ingest_folder  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# agent flag → (corpus folder, Chroma collection). Phase B adds "surgeon" here.
+# agent flag → (corpus folder, Chroma collection).
 AGENT_CORPORA = {
     "pt": (_REPO_ROOT / "data" / "pt", "pt_docs"),
     "trainer": (_REPO_ROOT / "data" / "trainer", "trainer_docs"),
+    "surgeon": (_REPO_ROOT / "data" / "surgeon", "surgeon_docs"),
 }
 
 
