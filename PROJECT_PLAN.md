@@ -5,15 +5,62 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 4c COMPLETE (2026-07-14) — router redesigned to be LLM-primary; Orthopedic
-> Surgeon agent (Phase B, §11) pulled forward in 4b; TEAM is a three-way Surgeon→PT→Trainer
-> chain with structured constraint handoff. Next up: Phase 5 (Streamlit app, owner TBD —
-> suggest Ben), then Phase 6 (eval + demo assets). Open leftover: each teammate needs their
-> own free Groq key at console.groq.com in their local `.env` — **this is now a harder
-> blocker than before**, since routing itself needs Groq (see Phase 4c results).**
+> **Status: PHASE 5 COMPLETE (2026-07-15) — `app.py` Streamlit chat UI live over
+> `answer_question()`, polished with custom CSS, specialist badges, sources/constraints/
+> debug-trace expanders, and per-agent rebuild buttons. **Ben's Groq key is now configured
+> and everything through Phase 5 has been re-verified live** (see the update notes on the
+> Phase 4c and Phase 5 results blocks below) — real battery run (13/15), real three-way
+> chain with real synthesized answers, real UI render via Streamlit's `AppTest`. Two real
+> routing-accuracy gaps found and logged, not yet fixed (see Phase 4c update). Next up:
+> Phase 6 (eval + demo assets) — James & Evan should still add their own Groq keys per §0,
+> since this was only verified with Ben's.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 5 results (2026-07-15)** — Ben. `app.py`: a chat UI that imports only
+> `answer_question()` (§5.4) — no agent/router/orchestrator internals touched, per the
+> plan's own rule. Per assistant message: a route+confidence chip, colored specialist badges
+> (🦴 surgeon / 🩺 PT / 🏋️ trainer) for `agents_consulted`, an expander with per-agent
+> `sources`, an expander rendering Phase 4b's `constraints` field as a restrictions
+> checklist, and (toggled in the sidebar) the raw `execution_trace`. Sidebar also has one
+> "rebuild knowledge base" button per agent (shells to `python -m src.ingest --agent X
+> --fresh`, streams output, success/error toast) and a clear-chat button. Custom CSS layered
+> on top of default Streamlit — message bubbles, badge chips, a `prefers-color-scheme`-aware
+> route chip — per team decision to stay in-stack rather than adopt Chainlit or a custom
+> frontend (D12); this was a deliberate, asked-for pivot away from "plain Streamlit" without
+> a full framework migration. **Verified:** `app.py` imports cleanly and the script's
+> top-level render path (CSS injection, empty-session sidebar, empty chat history) runs
+> without raising, checked by launching the real `streamlit run app.py` server and curling
+> it. **Not verified — needs a human with a real Groq key:** actually typing a question into
+> the chat input and confirming a real synthesized answer renders correctly with working
+> badges/expanders; this exercises code paths (the `st.chat_input` branch, `answer_question()`
+> actually succeeding) that automated curl-only testing cannot reach. Do this before the
+> video demo.
+>
+> **Update (2026-07-15, same day, real key now available):** Ben added his Groq key to
+> `.env` (correctly — see the security note below) and asked for full live verification. Used
+> Streamlit's own `streamlit.testing.v1.AppTest` (not curl — curl only proves the server
+> boots, since Streamlit doesn't run the script until a browser opens a session) to actually
+> execute `app.py` headlessly: initial render (`at.exception` empty, title/sidebar/11
+> elements present, 0 chat messages) confirmed clean; then simulated typing "Give me a 3-day
+> beginner strength program." into `chat_input` and running it for real — `at.exception`
+> stayed empty, and the rendered output showed the correct route chip
+> (`TRAINER_ONLY (0.90)`), the correct orange Gym Trainer badge, a real grounded 3-day
+> program with `[source: ...]` citations, and the sources expander populated correctly. The
+> constraints-checklist expander specifically wasn't exercised with non-empty data in this
+> pass (that answer had none to extract) but shares the same rendering pattern as the sources
+> expander, which did render live. **This is now genuinely end-to-end verified, not just
+> structural.**
+>
+> **Security note, logged for the record:** while adding his key, Ben initially pasted his
+> real `GROQ_API_KEY` and LangSmith (`LANGCHAIN_API_KEY`) values into `.env.example` — the
+> *template* file that's meant to be committed — instead of `.env` (gitignored). Caught and
+> fixed before anything was committed or pushed, so nothing was ever exposed on GitHub; the
+> real keys were moved to `.env` and `.env.example` was restored to an empty template (now
+> also documenting the optional LangSmith tracing vars). No action needed (keys were never
+> live in git history), but worth remembering: `.env.example` is the one file in this pair
+> that's safe to commit, `.env` never is.
 >
 > **Phase 4c results (2026-07-14)** — Ben, same day as 4b, in response to feedback that the
 > hand-tuned regex cue lists were brittle (a real bug surfaced mid-review: "when do my
@@ -48,6 +95,29 @@
 > and the full three-way chain producing real grounded answers end-to-end. Whoever adds
 > their key first should re-run the battery for real and paste results into a follow-up
 > phase-results block.
+>
+> **Update (2026-07-15, real key now available):** ran all 15 battery rows live.
+> **13/15 correct**, all via `method: llm` except the 2 RED_FLAG rows (still `method: rules`,
+> confirmed unaffected). Full real trace on the flagship TEAM row ("I'm 8 weeks
+> post-meniscus surgery...") confirms the chain works exactly as designed:
+> `consult_surgeon (6 sources, 0 constraints) → consult_pt (5 sources, with surgeon draft as
+> peer_context) → consult_trainer (4 sources, with 2 upstream drafts as peer_context) →
+> synthesize (merged 3 drafts)`, and the synthesized answer correctly says *"your surgeon's
+> guidance on post-op precautions takes precedence"* — D10's priority rule showing up in a
+> real model output, not just the prompt. **Two real, unfixed routing-accuracy gaps found:**
+> (1) "What's the best gym?" — expected CLARIFY, got `TRAINER_ONLY` (0.90, reasoning:
+> "general gym inquiry unrelated to injury or surgery"). The old regex router's explicit
+> vague-word guard caught this; the LLM is more willing to just answer a subjective/
+> underspecified question than to ask for clarification. (2) The three-specialist TEAM row
+> ("My surgeon cleared me for full weight-bearing 6 weeks after ACL reconstruction...") —
+> expected surgeon+PT+trainer, got only PT+trainer (`{"pt":1,"trainer":1,"surgeon":0}`); the
+> model didn't flag the surgeon as relevant despite explicit "my surgeon cleared me" /
+> "weight-bearing" / "ACL reconstruction" language, even though those are exactly the
+> phrases the old regex `_SURGEON_CUES` were built to catch. **Neither is fixed yet** — likely
+> fix is prompt-level (few-shot examples, or an explicit instruction that mentioning a
+> specific surgery/clearance/post-op milestone should include 'surgeon' even when the
+> question is really about returning to training) but that's a follow-up task, not done here.
+> `AppTest`-based UI verification (see the Phase 5 update above) also ran during this pass.
 >
 > **Phase 4b results (2026-07-14)** — Ben, extending his Phase 4 ownership. Two additions
 > to the agent-to-agent framework: (1) **structured constraint extraction**
@@ -625,14 +695,14 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 - [x] `src/orchestrator.py`: `consult_surgeon` node; TEAM route chains whichever of
       surgeon/PT/trainer actually scored, most-restrictive-first, each hop receiving upstream
       constraints + drafts as `peer_context`; synthesis attributes and prioritizes accordingly
-- [ ] ~~Re-run the FULL §9 battery (parity check) plus new surgeon/three-way rows~~ — not
-      actually run against live data (no Groq key in the dev environment); left unchecked
-      honestly rather than claimed done. Blocked on a real key (§0); see Phase 4c note.
-- **Done when:** a post-op-only question routes SURGEON and answers grounded+cited; a
-  three-cue TEAM question chains `consult_surgeon → consult_pt → consult_trainer` in order
-  with constraints visible in the trace; killing `surgeon_docs` before it's built degrades to
-  `fallback_handler`, not a stack trace. (Structural chain topology verified via monkeypatch
-  in Phase 4c; battery routing accuracy still needs a live Groq key.)
+- [x] Re-run the FULL §9 battery (parity check) plus new surgeon/three-way rows — run live
+      2026-07-15 once a Groq key was available; see the Phase 4c update note for the real
+      13/15 result and the two accuracy gaps found
+- **Done when:** a post-op-only question routes SURGEON and answers grounded+cited (confirmed
+  live); a three-cue TEAM question chains `consult_surgeon → consult_pt → consult_trainer` in
+  order with constraints visible in the trace (confirmed live, real trace in the Phase 4c
+  update); killing `surgeon_docs` before it's built degrades to `fallback_handler`, not a
+  stack trace (verified structurally in Phase 4c's monkeypatch tests).
 
 ### Phase 4c — Router redesign: LLM-primary classification — **Ben** *(same-day follow-up to 4b)*
 
@@ -644,21 +714,34 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
       consumed `route_scores` generically
 - [x] Unit-tested `_parse_llm_response` against synthetic responses (incl. malformed ones);
       confirmed `classify()` degrades to CLARIFY (not a crash) with no API key or empty input
-- [ ] Run the FULL §9 battery for real against live Groq responses — **blocked on a Groq key**
-      being configured in a dev environment; do this before Phase 5 if possible
+- [x] Run the FULL §9 battery for real against live Groq responses — done 2026-07-15,
+      **13/15 correct**; two accuracy gaps found and logged (not yet fixed): a vague "best
+      gym" question resolves to TRAINER_ONLY instead of CLARIFY, and one three-specialist
+      TEAM question under-chains to PT+trainer only (misses the surgeon) despite explicit
+      "my surgeon cleared me" / "weight-bearing" / "ACL reconstruction" language
 - **Done when:** the battery has actually been run against a real Groq key and routing
-  accuracy is recorded in a follow-up phase-results block (not just structural/parser tests).
+  accuracy is recorded in a follow-up phase-results block — **done**, see the update note
+  above. Follow-up: fix the two accuracy gaps (likely a prompt tweak), not done in this pass.
 
-### Phase 5 — Streamlit app — **OWNER TBD (suggest Ben, owns the API it calls)**
+### Phase 5 — Streamlit app — **Ben**
 
-- [ ] `app.py`: chat UI over `answer_question()`; per-message badge showing which
-      specialist(s) contributed (🩺/🏋️); expander with per-agent source files; sidebar:
-      route + confidence + execution trace (debug view), "rebuild knowledge bases" button
-      shelling to the two ingest commands
-- [ ] README: setup → ingest → run, with screenshots
-- **Done when:** fresh clone → `.env` → ingest both agents → `streamlit run app.py` →
-  a TEAM question shows both badges and both source lists. This exact flow is the video-demo
-  script.
+- [x] `app.py`: chat UI over `answer_question()` (the only backend import — no agent/router/
+      orchestrator internals touched); per-message specialist badges (🦴/🩺/🏋️, colored
+      chips) showing which agent(s) contributed; route+confidence chip; expander with
+      per-agent source files; expander with structured `constraints` (Phase 4b) rendered as
+      a restrictions checklist; sidebar: per-agent "rebuild knowledge base" buttons shelling
+      to `python -m src.ingest --agent <pt|trainer|surgeon> --fresh` with live output, a
+      "show routing debug trace" toggle (route/confidence/execution_trace per message), and
+      a clear-chat button. Custom CSS on top of default Streamlit (message bubbles, badge
+      chips, route chip) — dark/light aware via `prefers-color-scheme` — per team decision
+      to stay in-stack rather than adopt a different UI framework (D12)
+- [x] README: setup → ingest (all three agents) → run, with what to expect described
+- **Done when:** fresh clone → `.env` → ingest all three agents → `streamlit run app.py` →
+  a TEAM question shows multiple badges and multiple source lists. This exact flow is the
+  video-demo script. **Verified live** (see the Phase 5 update note) via Streamlit's
+  `AppTest` with a real Groq key — real question in, real grounded answer with correct
+  route chip/badge/sources out, zero exceptions. Still worth a human clicking through it once
+  in an actual browser before the video shoot, since `AppTest` doesn't render CSS/layout.
 
 ### Phase 6 — Evaluation & demo assets — **whole team; James leads report**
 
@@ -714,6 +797,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D9 | 2026-07-14 | Orthopedic Surgeon agent (Phase B, §11) pulled forward into Phase 4b, with TEAM generalized to a conditional Surgeon→PT→Trainer chain | Ben's Phase 4 ownership naturally extends to the rest of the agent-to-agent framework; the cue-scoring dominance math already generalized cleanly from 2 to 3 buckets, and gating each hop on `route_scores` avoids consulting the surgeon on questions that never mention surgery |
 | D10 | 2026-07-14 | Synthesis conflict priority: surgeon wins on post-op/hardware/weight-bearing precautions, PT wins on everything else involving pain/safety/rehab | Generalizes D4's "PT wins on safety" rule now that there are two clinical voices instead of one; each has a distinct area where its restriction should override the others |
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
+| D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
 
 ---
 
