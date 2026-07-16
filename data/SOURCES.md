@@ -82,3 +82,38 @@ Three files are deliberately duplicated from `data/pt/` because collections are 
 agent (decision D3) and the "elderly getting active" persona needs them in BOTH knowledge
 bases. Move Your Way fact sheets moved to `/2023-08/PAG_MYW_FactSheet_*-508c.pdf` URLs
 (the 2019 URLs 404); the adults variant still 404s and was skipped.
+
+## data/surgeon/ — Orthopedic Surgeon corpus (fetched 2026-07-14)
+
+| File | Source | License |
+|---|---|---|
+| medlineplus_surgical_wound_care_open.txt | https://medlineplus.gov/ency/patientinstructions/000040.htm | PD |
+| medlineplus_surgical_wound_care_closed.txt | https://medlineplus.gov/ency/patientinstructions/000738.htm | PD |
+| medlineplus_surgical_wound_infection.txt | https://medlineplus.gov/ency/article/007645.htm | PD |
+| medlineplus_how_wounds_heal.txt | https://medlineplus.gov/ency/patientinstructions/000741.htm | PD |
+| medlineplus_sutures_staples_at_home.txt | https://medlineplus.gov/ency/patientinstructions/000498.htm | PD |
+| medlineplus_using_crutches.txt | https://medlineplus.gov/ency/patientinstructions/000344.htm | PD |
+| medlineplus_acl_reconstruction.txt | https://medlineplus.gov/ency/article/007208.htm | PD |
+| medlineplus_acl_reconstruction_discharge.txt | https://medlineplus.gov/ency/patientinstructions/000189.htm | PD |
+| medlineplus_rotator_cuff_repair.txt | https://medlineplus.gov/ency/article/007207.htm | PD |
+| medlineplus_hardware_removal.txt | https://medlineplus.gov/ency/article/007644.htm | PD |
+| medlineplus_knee_arthroscopy.txt | https://medlineplus.gov/ency/article/002972.htm | PD |
+| medlineplus_knee_arthroscopy_discharge.txt | https://medlineplus.gov/ency/patientinstructions/000199.htm | PD |
+| medlineplus_getting_home_ready.txt | https://medlineplus.gov/ency/patientinstructions/000167.htm | PD |
+| medlineplus_knee_joint_replacement_discharge.txt | https://medlineplus.gov/ency/patientinstructions/000170.htm | PD |
+| niams_hip_replacement_surgery.txt | https://www.niams.nih.gov/health-topics/hip-replacement-surgery | PD |
+| nhs_hip_replacement_recovery.txt | https://www.nhs.uk/tests-and-treatments/hip-replacement/recovering-from-a-hip-replacement/ | OGL |
+| nhs_knee_replacement_recovery.txt | https://www.nhs.uk/tests-and-treatments/knee-replacement/recovery/ | OGL |
+| nhs_having_surgery_recovery.txt | https://www.nhs.uk/tests-and-treatments/having-surgery/recovery/ | OGL |
+
+Fetch notes (2026-07-14): these are all "encyclopedia / patient-instructions" style
+MedlinePlus pages (procedure and discharge-care specific), deliberately distinct from the
+`kneereplacement.html` / `hipreplacement.html` "topic-summary" pages already used in
+`data/pt/` — no duplication between the two corpora. Two candidate URLs 403'd the fetcher
+and were dropped rather than retried: `cdc.gov/surgical-site-infections/about/index.html`
+(CDC's patient SSI-basics page) and NIAMS's `community-outreach-initiative/.../
+joint-replacement-surgery` overview page; `medlineplus_surgical_wound_infection.txt` and
+`niams_hip_replacement_surgery.txt` cover the same ground so the corpus wasn't short-changed.
+Only `nhs.uk` main-domain pages were used for NHS content (not individual NHS Trust
+subdomains like `guysandstthomas.nhs.uk`, which are separate legal entities not
+necessarily under the same OGL terms) — consistent with the PT/trainer corpora.
