@@ -117,6 +117,9 @@ _PT_CUES = [
     (_c(r"\bmobility\b|\bflexib\w+\b"), 1),
     (_c(r"\btendon\b|\bligament\b|\bmeniscus\b|\brotator cuff\b|\bacl\b|\bmcl\b"), 2),
     (_c(r"\bcrutch\w*\b|\bbrace\b|\bcast\b"), 2),
+    (_c(r"\bmassage\b|\bmassage therapy\b"), 2),
+    (_c(r"\bclinical practice guidelines?\b|\bcpgs?\b"), 2),
+    (_c(r"\btherapeutic exercise\b"), 2),
 ]
 
 _TRAINER_CUES = [

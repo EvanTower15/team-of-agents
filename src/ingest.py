@@ -20,6 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.rag_core import clear_collection, ingest_folder  # noqa: E402
+from src.scrapers.physiopedia_scraper import scrape_physiopedia  # noqa: E402
+from src.scrapers.clinical_downloader import download_clinical_data  # noqa: E402
+from src.scrapers.jospt_scraper import scrape_jospt  # noqa: E402
+from src.scrapers.jgpt_scraper import scrape_jgpt  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -45,9 +49,22 @@ def main() -> None:
         action="store_true",
         help="clear the agent's existing collection before ingesting",
     )
+    parser.add_argument(
+        "--scrape",
+        action="store_true",
+        help="run data collection scrapers before ingesting",
+    )
     args = parser.parse_args()
 
     folder, collection = AGENT_CORPORA[args.agent]
+    
+    if args.scrape and args.agent == "pt":
+        print(f"[ingest] Running scrapers for PT agent... Outputting to {folder}")
+        scrape_physiopedia(folder / "unstructured")
+        download_clinical_data(folder / "structured")
+        scrape_jospt(folder / "structured")
+        scrape_jgpt(folder / "structured")
+
     if args.fresh:
         clear_collection(collection)
 
