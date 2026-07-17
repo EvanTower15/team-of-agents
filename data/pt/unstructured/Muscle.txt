@@ -1,0 +1,84 @@
+Contents
+
+Introduction [ edit | edit source ]
+
+There are three major muscle types found in the human body: skeletal , cardiac , and smooth muscle . Each muscle type has unique cellular components, physiology, specific functions, and pathology. Skeletal muscle is an organ that primarily controls movement and posture . Cardiac muscle encompasses the heart , which keeps the human body alive. Smooth muscle is present throughout the gastrointestinal, reproductive, urinary, vascular, and respiratory systems.
+
+Myogenesis [ edit | edit source ]
+
+The formation of muscle tissues is known as Myogenesis. The myoblasts are the progenitor cells of the muscle tissue. During embryonic development, the myoblasts either divide mitotically to give rise to more myoblasts or differentiate into myocytes (muscle cells). [1]
+
+Satellite cell s or muscle stem cells (MSC) are small multipotent cells with very little cytoplasm. MSC are precursors to skeletal muscle cells with the ability to give rise to more MSC or differentiated skeletal myocytes. [2]
+
+3 Types of Muscles in Humans [ edit | edit source ]
+
+Skeletal [ edit | edit source ]
+
+Skeletal muscle attachs to bones and have the main function of contracting to facilitate movement of our skeletons. Known also as striated muscles due to their appearance. The cause of this 'stripy' appearance is the bands of Actin and Myosin which form the Sarcomere, found within the Myofibrils .
+
+Skeletal muscles are voluntary muscles because we have direct control over them through our nervous system. Contractions can vary to produce powerful, fast movements or small precision actions. Skeletal muscles are able to stretch or contract and still return to their original shape.
+
+There are three types of muscle fibres: slow oxidative (SO), fast oxidative (FO) and fast glycolytic (FG
+
+Cardiac [ edit | edit source ]
+
+Found only in the walls of the heart . Similar to skeletal muscles in that it is striated and multi nucleated, and with smooth muscles in that its contractions are not under controlled by the autonomic nervous system . However, even without a nervous input contraction can occur due to cells called pacemaker cells. Cardiac muscle is highly resistant to fatigue due to the presence of a large number of mitochondria , myoglobin and a good blood supply allowing continuous aerobic metabolism.
+
+Smooth [ edit | edit source ]
+
+Smooth muscle is the involuntary muscle controlled by the autonomic nervous system. The cells do not have the stripy appearance of Skeletal muscle due to lack of sarcomeres and they contain only a single nucleus.  Smooth muscle is found in the walls of hollow organs such as the Stomach, Oesophagus, Bronchi and in the walls of blood vessels. In smooth muscle, the contraction is not controlled voluntarily by the somatic nervous system, but by signals from the autonomous nervous system, eg nerve impulses, hormones , and other chemicals released by specialized organs [3] . Smooth muscle is specialized to contract persistently,and has slow, rhythmical contractions used in controlling internal organs, for example, moving food along the Oesophagus or constricting blood vessels during Vasoconstriction. [4]
+
+Myosin and Actin [ edit | edit source ]
+
+All types of muscles all utilise myosin and actin filaments (see molecular motors ) to generate force that leads to cell contraction. In skeletal and cardiac muscle, actin and myosin filaments are organised into sarcomeres that function as the fundamental unit of contraction. Skeletal muscle cells are elongated, multi-nucleated cells that range in length from millimetres to tens of centimetres and span the entire length of a muscle. Cardiac muscle cells are similar to skeletal muscle cells but are shorter and are attached to each other via specialised junctions called intercalated disks. Smooth muscle cells contain a single nucleus and lack sarcomeres. They specialise in slow, powerful contractions and are under involuntary control. [5]
+
+Anatomy of Skeletal Muscle [ edit | edit source ]
+
+In most muscles the fibres are oriented in the same direction, running in a line from the origin to the insertion. In muscles were force is more important than length change eg rectus femoris. These are known as pennate muscles having individual fibers oriented at an angle relative to the line of action. Because the contracting fibres are pulling at an angle to the overall action of the muscle, the change in length is smaller, but this same orientation allows for more fibres (thus more force) in a muscle of a given size.
+
+Skeletal muscles are sheathed by a tough layer of connective tissue called the epimysium.  The epimysium contains many fascicles. Enclosing each fascicle is a layer called the perimysium which contains many muscle fibres Enclosing each muscle fibre is a layer of connective tissue called the endomysium.
+
+The epimysium anchors muscle tissue to tendons at each end, where the epimysium becomes thicker and collagenous. It also protects muscles from friction against other muscles and bones. [6] Connective tissue is present in all muscles as fascia.
+
+The below video gives a good brief  illustration of this
+
+[7]
+
+The sarcolemma is the cell membrane of a striated muscle cell. It forms a physical barrier against the external environment and also mediates signals between the exterior and the muscle cell. The sarcoplasm is the specialized cytoplasm of a muscle cell that contains the usual subcellular elements along with the Golgi apparatus, abundant myofibrils, a modified endoplasmic reticulum known as the sarcoplasmic reticulum (SR), myoglobin and mitochondria. Transverse (T)-tubules invaginate the sarcolemma and form a network around the myofibrils, storing and providing the Ca2+ that is required for muscle contraction.
+Myofibrils are contractile units (within the muscle cell) that consist of an ordered arrangement of longitudinal myofilaments (thin actin filaments and thick myosin filaments). The characteristic 'striations' of skeletal and cardiac muscle readily observable by light microscopy are the thin filaments (light) the thick filaments (dark). The Z-line defines the lateral boundary of each sarcomere. Contraction of the sarcomere occurs when the Z-lines move closer together, making the myofibrils contract, and therefore the whole muscle cell and then the entire muscle contracts. The interaction of myosin and actin is responsible for muscle contraction. [8]
+
+Motor Units [ edit | edit source ]
+
+Within a muscle, the muscle fibres are functionally organised as motor units. A motor unit consists of a single motor neuron and all of the muscle fibres it innervates. The size of the unit can involve only a few fibres for fine movement to huge numbers for gross movement such as what occurs in walking. eg  the eyes require rapid, precise movements but little strength; in consequence, extraocular muscle motor units are extremely small (with an innervation ratio of only 3!) and have a very high proportion of muscle fibres capable of contracting with maximal velocity.  In contrast, the gastrocnemius, a muscle that comprises both small and larger units, has an innervation ratio of 1000–2000 muscle fibres per motor neuron, and can generate forces needed for sudden changes in body position. [9]
+
+The force generated by muscles to lift a pen is much less than the force required to lift a car wheel. The force of contraction produced by a muscle is increased in two ways: multiple motor unit summation, which involves increasing the number of muscle fibres contracting, and multiple-wave summation, which involves increasing the force of contraction of the muscle fibres. [10]
+
+Motor units also differ in the types of muscle fibres that they innervate. In most skeletal muscles, the small motor units innervate small “red” muscle fibres that contract slowly and generate relatively small forces. They are rich in myoglobin, mitochondria, and capillary beds, such small red fibres are resistant to fatigue. These small units are called slow (S) motor units and are especially important for activities that require sustained muscular contraction eg maintenance of an upright posture. Larger α motor neurons innervate larger, pale muscle fibres that generate more force. They have sparse mitochondria and are easily fatigued. These units are called fast fatigable (FF) motor units and are especially important for brief exertions that require large forces, such as running or jumping. A third class of motor units has properties that lie between those of the other two. These fast fatigue-resistant (FR) motor units are of intermediate size and are not quite as fast as FF units. As the name implies, they are substantially more resistant to fatigue, and generate about twice the force of a slow
+
+Nervous Control [ edit | edit source ]
+
+The somatic nervous system controls all voluntary muscular systems within the body, and the process of voluntary reflex arcs. The basic route is as follows:
+
+Exercise [ edit | edit source ]
+
+Physical training alters the appearance of skeletal muscles and can produce changes in muscle performance.The reverse ie a lack of use can result in decreased performance and muscle appearance. Although muscle cells can change in size, new cells are not formed when muscles grow. Instead, structural proteins are added to muscle fibers in a process called hypertrophy, so cell diameter increases. Conversely when structural proteins are lost and muscle mass decreases atrophy is said to occur.
+
+Cellular components of muscles can also undergo changes in response to changes in muscle use. The changes in muscle differ depending on the type of exercise undertaken.
+
+The below video is a great talk on muscular adaptions to exercise.
+
+[13]
+
+Disease [ edit | edit source ]
+
+The image shows a schematic representation of the in vivo status of thin-filament packing density and spacing in half a sarcomere from a normal pre-flight muscle and in half a sarcomere from an atrophic muscle after a 17-day space flight in humans.
+
+There are three types of muscle atrophy: physiologic, pathologic, and neurogenic.
+
+Physical inactivity causes reduction in muscle mass , which is due to increased protein degradation or reduced protein synthesis in muscles. This directly impacts on a persons quality of life and is a main risk factor for chronic diseases . It is well  known that physical exercise is important to maintain and promote the synthesis of muscle protein and in the activation of signalling pathways serving the muscle. Physical exercise promotion is essential in the physically inactive for the whole raft of health and lifestyle benefits that come with it. [15]
+
+Physiotherapy [ edit | edit source ]
+
+Physiotherapists treat a whole range of muscular conditions eg muscle injury ; muscle rehabilitation; sports enhancement of muscle; disuse atrophy; physical exercise promotion and education ...basically all the disorders of muscles you can think of!
+
+References [ edit | edit source ]

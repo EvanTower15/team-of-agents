@@ -1,0 +1,93 @@
+Original Editor - Manisha Shrestha
+
+Top Contributors - Manisha Shrestha , Lucinda hampton , Rubi , Rishika Babburu , Jonathan Wong , Kim Jackson , Ahmed M Diab , Candace Goh and Tolulope Adeniji
+
+Contents
+
+Introduction [ edit | edit source ]
+
+Aerobic exercise refers to the type of repetitive, structured physical activity that requires the body’s metabolic system to use oxygen to produce energy. Aerobic exercise:
+
+Effects of aerobic exercises [ edit | edit source ]
+
+[2]
+
+Aerobic exercises mainly shows an effect in health-related components of fitness especially cardiovascular endurance and body composition.
+
+For neuromuscular adaptation following aerobic exercises, click link.
+
+Physiological effects of aerobic exercises are explained below: [3]
+
+These effects helps in following benefits to the  body: [7] [8]
+
+How Much? [ edit | edit source ]
+
+Healthy adults should aim for at least 150 minutes of moderate aerobic activity or 75 minutes of vigorous aerobic activity a week, or an equivalent combination of moderate and vigorous activity. [9] That doesn't have to be all at one time, though. For example, brisk walking for 30 minutes, five days a week meets the guidelines. Aerobic exercise can even be done in short blocks of time, such as several walk breaks spread throughout the day. Any activity is better than none at all. [10]
+
+Exercise Testing [ edit | edit source ]
+
+Why perform exercise tests?
+
+Standard graded exercise tests are used clinically to assess a patient’s ability to tolerate increasing intensities of aerobic exercise Eg:
+
+These tests help to identify the criterion measures for cardiovascular fitness and exercise capacity. [12]
+
+Concurrent Aerobic & Strength Training [ edit | edit source ]
+
+Exercise guidelines recommend performing both aerobic and strength training because these activities to some extent induce distinct adaptations and health benefits. [14] [15] The idea of training both concurrently will be further discussed below.
+
+Traditionally, there has been the idea that aerobic exercise negatively impacts strength training. While strength training is an anabolic process with hypertrophy, cardio is a catabolic process and was hence theorised to conflict with strength training adaptations. Indeed, in the past aerobic exercise has been thought to interfere with the development of maximal strength when overall training volume is high. [16] However, when training volume is reduced to two weekly aerobic and strength training sessions each, no interference is found. [17] [18] That said, even low volumes of concurrent aerobic training appears to reduce gains in rapid force production, or development in muscle power. [17] [19] A 2012 meta analysis and 2021 systematic review concurs with these findings, showing peak power attenuation with concurrent strength and aerobic training compared with strength training alone, whereas muscle hypertrophy and maximal strength were unaffected . [20] [21] Both these reviews however, looked at whole muscle hypertrophy alone. Another 2022 systematic review examined muscle fiber hypertrophy and found that when performing concurrent training, aerobic training reduced muscle fiber hypertrophy gains , while not affecting whole muscle hypertrophy. [22] The review suggested cycling had less negative impact on muscle fiber hypertrophy compared to running. [22]
+
+One systematic review has indicated these effects on power development may be more pronounced when aerobic and strength training are performed in close proximity regardless of exercise order. [21] However, much of the literature suggests that the negative effects are more pronounced when aerobic training precedes strength training . Indeed, a systematic review examining the acute effects of aerobic training preceding strength mention a resulting acute drop in strength - which will affect strength training. [23] Based on the available evidence, it is likely that clinical recommendations should include separating strength and aerobic training, or performing strength training first.
+
+Petre et al's 2021 meta analysis examined effects by experience with strength training, suggesting that concurrent aerobic and strength training may negatively affect lower body strength gain for trained individuals but not moderately or untrained individuals. [24] Schumann et al's 2021 systematic review's findings conflict with this, finding no differences in effects of concurrent training regarding training status (untrained vs active). [21] Schumann et al also found no difference regarding different types of aerobic training (cycling vs running) and frequency (<5 vs >5 per week). One factor they did find that worsened negative effects on power development was when concurrent training was performed within the same session, compared to when aerobic and strength training are separated by at least 3 hours.
+
+Clinical takeaways:
+
+Evidences [ edit | edit source ]
+
+American College of Sports and Medicine (ACSM), 2014 has prescribed aerobic exercises based on FITT ( frequency, intensity, time, type) in different conditions and age groups. [12]
+
+Cardiovascular Disease / Risk factors and Aerobic Exercise
+
+Cardiovascular diseases (CVDs) are the number one cause of death globally, taking an estimated 17.9 million lives each year. Out of many cardiovascular diseases, heart attack and stroke being the most common cause of death. Lifestyle modification is the first line of treatment suggested by WHO and American heart association which includes diet and exercise. [25] Supervised cardiac rehabilitation protocols are there to guide the treatment.
+
+A randomized controlled trial done in 2019, has shown benefits of combined training (aerobic 30 minutes/session plus resistance 30 minutes/session) 3 days/week for 8 week rather than aerobic exercise and strength exercise alone. Combined training provided significant reductions in peripheral (-4 mmHg) and central diastolic BP (-4 mmHg), increase in CRF (4.9 ml/kg/min), increase in upper (4 kg) and lower (11 kg) body strength, and increase in lean body mass (0.8 kg). [26]
+
+Diabetes and Aerobic Exercise
+
+Supervised exercise interventions improve glycated hemoglobin (A1C), triglycerides (TG), and cholesterol (9) in people with type 2 diabetes. Both aerobic and resistance exercise are beneficial, and it is optimal to do both types of exercise. At least 150 minutes per week of aerobic exercise and at least 2 sessions per week of resistance exercise are recommended. [27]
+
+It is very important to maintain the dose of insulin and time of exercise and also carbohydrate intake during and after exercise to prevent post-exercise hypoglycemia. For detail please have a look at this guideline. [27]
+
+Chronic pain and Aerobic Exercises
+
+Aerobic exercise programs have shown physiological, psychological, and articular benefits in patients with chronic diseases (e.g., arthritis, osteoarthritis, and fibromyalgia). Aerobic exercise stimulates the release of endorphins that relieve pain by inhibiting the pain pathways. It makes the patient more active, reducing the fear of moving (kinesiophobia) and increasing self-confidence.
+
+A systematic review protocol published in 2019 has shown the effect of aerobic exercise and chronic non- specific low back pain. Aerobic exercise with a duration of 15 to 60 continuous minutes and intensity of 60 to 90% of the maximum heart rate had shown significant improvement.
+
+Mental health and Aerobic Exercise:
+
+In the systematic review and meta-analysis done in 2019 across 11 eligible trials (13 comparisons) involving 455 patients, aerobic exercise delivered for an average of 45 minutes, at moderate intensity, three times/week, for 9.2 weeks and showed a significantly large overall antidepressant effect. [28]
+
+Pregnancy and Aerobics:
+
+Low impact aerobic exercises are the key to physiological as well as psychological well-being during pregnancy. Regular, low-impact aerobic exercise during pregnancy will help to strengthen heart and lungs, to tone muscles, ease pregnancy aches and pains and allows a better night's sleep. alternatively it will help to cope with the demands of pregnancy and birth. [29] A Cochrane systemic review has shown that Regular aerobic exercise during pregnancy appears to improve (or maintain) physical fitness. [30]
+
+A meta-analysis of 9 RCTs that included 2059 women with an uncomplicated, singleton pregnancy with normal body mass index showed that women who were assigned randomly to aerobic exercise had similar incidence of PTB, lower incidences of GDM , GHTN disorders, cesarean delivery, and a higher rate of vaginal delivery. [31]
+
+Risk of Fall in older adult and Aerobics:
+
+As the age advances there are various physiological changes occur in the body, hence muscle strength reduces more in lower extremity than the upper extremity, increases the risk of fall in geriatric population. Aerobic exercises has shown improvement in balance and gait. [32]
+
+Children and Aerobics:
+
+According to the latest guidelines children from age 3 to 5, need to be active throughout the day to improve growth and development. Children of this age group should aim for at least 3 hours a day of physical activities, they must be active throughout the day. [33] [34] Children and adolescents ages 6 through 17 years should do 60 minutes (1 hour) or more of moderate-to-vigorous physical activity daily.60 minutes of physical activities involving aerobics such as running, walking, swimming and cycling is highly encouraged for overall growth as an individual. [35] [36]
+
+Aerobic Exercise and Neuroplasticity After Stroke
+
+Findings from a systematic review on the effects of physical aerobic exercise on neuroplasticity after stroke has highlighted the importance of implementing aerobic activity while planning a program for stroke patients. [37] It was found that moderate to high-intensity level of aerobic exercise has a positive effect on enhancing neuroplasticity among stroke survivors. A combination of cognitive training or physiotherapy training, implemented immediately after an aerobic workout, may provide additive benefit towards neuroplasticity in rehabilitation programs. In addition, aerobic activity positively influences serum biomarkers of neuroplasticity and brain repair in stroke survivors. [38]
+
+Resources [ edit | edit source ]
+
+References [ edit | edit source ]

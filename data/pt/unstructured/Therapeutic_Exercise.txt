@@ -1,0 +1,109 @@
+Original Editor - Lucinda Hampton
+
+Top Contributors - Inga Balciuniene , Lucinda hampton , Kim Jackson , Kapil Narale , Candace Goh , Angeliki Chorti , Yahya Al-Razi and Aminat Abolade
+
+Contents
+
+Introduction [ edit | edit source ]
+
+Therapeutic exercise involves movement prescribed to correct impairments, restore muscular and skeletal function and/or maintain a state of well-being [1] . Therapeutic exercise is a type of physical activity used to treat or prevent injuries and improve functional outcomes. The scientific evidence demonstrating the beneficial effects of exercise is indisputable, and the benefits of exercise far outweigh the risks in most adults. For most adults, an exercise program including aerobic , resistance , flexibility , and neuromotor exercise training is indispensable to improve and maintain physical fitness and health [2] .
+
+Therapeutic exercise a core skills upon which the profession of physiotherapy is based. How does exercise differ from physical activity? [3] .
+
+Therapeutic exercise may include:
+
+The most commonly included exercises fall into 4 groups :
+
+All of these are combinable into exercise programs that work for many different types of patients. Different subtypes of exercises can help to increase effectiveness or allow participation of individuals with special needs based on comorbidities. eg. aquatic therapy for stroke patients with balance difficulties
+
+Basic exercise prescriptions should follow the FITT mnemonic.
+
+F- frequency: number of days per week
+
+I- Intensity: low, moderate, or vigorous
+
+T- Time: minutes per session for endurance exercise
+
+T- Type: endurance, strength, flexibility, or some combination [5]
+
+Endurance Exercises [ edit | edit source ]
+
+The dose of exercise can be described using the so-called FITT factors, where FITT stands for Frequency, Intensity, Time, and Type of activity [6] .
+
+Frequency (how often)
+
+Exercise should be carried out 3-5 days a week.
+
+Training three times a week produces significant training effects; however, training 5 days a week at a lower-intensity exercise may be more manageable for some people. Little additional benefit is seen with more than five training sessions a week, and the risk of injury is increased. Training twice a week does not produce increases in VO2max; however it may produce some functional changes and it is probably better than no exercise at all [3] . Moderate intensity aerobic exercise done at least 5 d ∙ wk or vigorous intensity aerobic exercise done at least 3 d ∙ wk or a weekly combination of 3–5 d ∙ wk of moderate and vigorous intensity exercise is recommended for most adults to achieve and maintain health/fitness benefits [7] .
+
+Intensity (how hard)
+
+Intensity refers to the rate at which the activity is being performed or the magnitude of the effort required to perform an activity or exercise. It can be thought of " How hard a person works to do the activity ". Intensity can be monitored by heart rate in most patients, although some patients may have a pathology or be on a drug treatment that affects their HR response to exercise in which case HR cannot be used to monitor exercise intensity. Exercise is categorized into three different intensity levels. These levels include low, moderate, and vigorous [3] .
+
+The overload principle of training states that exercise below a minimum intensity, or threshold will not challenge the body sufficiently to result in changes in physiologic parameters, including increased maximal volume of oxygen consumed per unit of time ( VO2max ) [7] .
+
+The Karvonen method, which takes into account resting HR, can be used to calculate an individual's training HR band using the following calculation. This is a method of calculating the training heart rate, which is equivalent to a desired percentage of VO2max. It involves adding a given percentage of the maximal heart rate reserve (maximal heart rate—resting heart rate) to the resting heart rate. The maximal heart rate is commonly assumed to be 220—age in years. Therefore, the following equation is used to calculate the training heart rate for a work rate equivalent 75% VO2max: training heart rate = 0.75 max HRR + resting HR; where max HRR is the maximum Heart Rate Reserve, and resting HR is resting Heart Rate. A target heart rate range for training is commonly set at values of between 50 and 85% of VO2max, i.e. 0.50 × max HRR + resting HR to 0.85 max HRR + resting HR [8] .
+
+In the absence of a heart rate monitor people can monitor their own pulse to ensure that they are working at the correct intensity. Patients should be taught how to take their carotid pulse within the first 10 or 15 seconds of terminating exercise and multiplying up the beats counted by 6 or 4 respectively to provide beats per minute. Oxygen uptake can also be used to set exercise intensity, and an intensity of 40-50% to 85% of the oxygen uptake reserve is recommended.
+
+Measures of perceived effort and affective valence (i.e. the pleasantness of exercise) can be used to modulate or refine the prescribed exercise intensity. These measures include the Borg Rating of Perceived Exertion (RPE) Scales, OMNI Scales, Talk Test, and Feeling Scale [7] .
+
+Walking is the most common form of endurance exercise practiced and it is the one most frequently recommended by doctors. Walking can be easily incorporated into the daily schedule. One study showed that seniors who walk at least 2 miles a day on average lower their mortality risk by 50 percent. Other good forms of endurance training are swimming, cycling, dancing, walking up stairs instead of taking the elevator, golf (walking), gardening or heavy yard work, and low-impact aerobics. [11]
+
+Time (duration or how long)
+
+A total of 20-60 minutes of continuous or intermittent aerobic activity a day should be performed. The activity can be divided into a minimum of lO-minute bouts throughout the day. The duration of training is dependent on the intensity. Individuals starting at the lower end of the training band need to sustain exercise longer (30-60 minutes) to achieve training effects [3] .
+
+Type (method of exercise - running, swimming, stretching, yoga, etc)
+
+Rhythmic, aerobic exercise of at least moderate intensity that involves large muscle groups and requires little skill to perform is recommended for all adults to improve health and CRF. Other exercise and sports requiring skill to perform or higher levels of fitness are recommended only for individuals possessing adequate skill and fitness to perform the activity [7] .
+
+Strengthening Exercises [ edit | edit source ]
+
+Strength training is done to build up muscle tissue ; it typically consists of graded exercises involving resistance training.  Strength training may be high or moderate in intensity. [11]
+
+This modality increases overall strength and comes in three forms: isotonic, isometric, and isokinetic .
+
+Resistance training (RT) has been acknowledged as an effective method to improve muscular strength, power, and hypertrophy which are fundamental components of physical fitness related to the quality of life [12] .Traditional resistance training recommendations suggest an intensity of 60–70% 1 repetition maximum (1 RM) in novice exercisers to improve strength [13] . Compared to no exercise, however, loads below 60% 1 RM can also induce significant strength gains in older healthy adults. An exercise training program ideally is designed to meet individual  health and physical fitness goals within the context of individual health status, function, and the respective physical and social environment [14] .
+
+For adults of all ages, the goals of a health-related resistance training program should beto (a) make activities of daily living (ADL) (e.g., stair climbing, carrying bags of groceries) less stressful physiologically and (b) effectively manage, attenuate, and even prevent chronic diseases and health conditions such as osteoporosis, Type 2 diabetesmellitus, and obesity. For these reasons, although resistance training is important acrossthe age span, its importance becomes even greater with age [7] .
+
+Load dosage
+
+ACSM  recommends:
+
+Flexibility Exercises [ edit | edit source ]
+
+Flexibility training: slowed, controlled exercises performed in a gradual manner (usually in the increment of fifteen to thirty seconds) that aid in the range of motion at joints or series of joints. Three main types exist: static, dynamic, and PNF (proprioceptive neuromuscular facilitation).
+
+Balance and Co-ordination [ edit | edit source ]
+
+Optimal control of balance in an upright stance is an essential requirement for sport, daily activities, and prevention of injury [20] . For example, impaired postural control is associated with an increased risk of ankle sprain [21] . Because of this strong association, balance and coordination training are common components of prophylactic and therapeutic intervention programs used by athletic trainers and other health care providers to treat patients with a variety of musculoskeletal conditions. Moreover, mounting evidence demonstrates that various balance-training programs improve postural control [22] and reduce the recurrence of musculoskeletal [21] . injuries (eg, ankle sprains)
+
+Despite the effectiveness of balance training in improving these outcomes, the exact parameters needed to maximize the benefits of balance-training programs remain unknown. One factor that has gained interest of late is the progression style. For example, participants or patients could be progressed to higher difficulty levels within a balance-training program after a set amount of time at a particular level (eg, 2 sessions or 8 repetitions). In contrast, participants or patients could be progressed only after they have demonstrated consistent movement proficiency. Some evidence suggests that balance improves when using a time-based or repetition-based–progression style [23] .
+
+According to the dynamic systems theory, an error-based progression style that evaluates consistent movement proficiency would allow the sensorimotor system to self-organize around a given set of task and environmental constraints before being challenged with greater demands at a higher difficulty level, which could result in a more profound improvement [24] . However, individual differences in the rate of self-organization and movement proficiency for a given task could vary significantly and thus may be a reason why this progression style has not been investigated empirically until recently. Indeed, several groups of researchers studying persons with chronic ankle instability (CAI) demonstrated that an error-based balance-training program was effective in improving postural control [25] e.g. McKeon et al study showed great results, 12 supervised training sessions, lasting about 30 minutes each over a 4-week period [25] .
+
+Physiotherapy [ edit | edit source ]
+
+There is strong evidence that aerobic exercise (40-50% HRR progressing to 60-80%) conducted 20-40 min and 3-5 days per week is beneficial for enhancing aerobic fitness, walking speed and walking endurance in people who have had mild to moderate stroke and are deemed to have low cardiovascular risk with exercise after proper screening assessments [26] .
+
+Nine articles (seven RCTs) were identified. The exercise intensity ranged from 50% to 80% heart rate reserve. Exercise duration was 20-40 min for 3-5 days a week. The total number of subjects included in the studies was 480. All studies reported positive effects on aerobic capacity, regardless of the stage of stroke recovery. There is good evidence that aerobic exercise is beneficial for improving aerobic capacity in people with mild and moderate stroke. Aerobic exercise should be an important component of stroke rehabilitation [27] .
+
+C. Liebenson for  back pain recommends Stability Training Variables
+
+Wernbom M, et all recommends dynamic external resistance training (e.g. weight-based resistance) for hypertrophy [19] .
+
+Principles of exercises for chronic non-inflammatory diseases and others look here .
+
+For cardiac and pulmonary rehabilitation , there is an interprofessional requirement for Physical therapists, occupational therapists, and all levels of clinical involvement due to the acuity of patients involved.
+
+For individual sports injuries , only physical therapists may be necessary to guide the patient through specific regimens. Incorporating home exercises that are easy and safe to perform alone allows peripheral surveillance with minimal risk. [1]
+
+A systematic review and meta-analysis published in the British Journal of Sports Medicine in 2020 found that exercise therapy was effective for reducing pain and improving physical function in people with knee osteoarthritis . The study also found that exercise therapy was safe and well-tolerated [29] [30] .
+
+Another recent systematic review and meta-analysis published in the Journal of Physical Therapy Science in 2021 found that therapeutic exercise was effective for improving balance and reducing falls in older adults . The study also found that exercise programs that included a combination of aerobic, resistance, and balance exercises were more effective than programs that only included one type of exercise [31] .
+
+Here is an interesting video outlining research completed at Queen's University on the Effect of Exercise Intensity and the duration and time of exercise. [32]
+
+References [ edit | edit source ]

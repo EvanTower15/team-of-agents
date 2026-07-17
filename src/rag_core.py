@@ -137,6 +137,12 @@ def ingest_folder(folder: str, collection_name: str) -> int:
         return 0
 
     chunks = split_documents(docs)
+    
+    # ChromaDB rejects nested dictionaries in metadata (which DocLing generates).
+    # We must filter/flatten the complex metadata into primitives before inserting.
+    from langchain_community.vectorstores.utils import filter_complex_metadata
+    chunks = filter_complex_metadata(chunks)
+
     embeddings = _get_embeddings()
 
     # Chroma caps how many records one call may add; batching keeps us safe

@@ -1,61 +1,48 @@
+"""
+src/scrapers/jgpt_scraper.py — JGPT / Geriatrics Document Ingester
+"""
+import shutil
 import time
 from pathlib import Path
-from urllib.parse import urljoin
-import requests
-from bs4 import BeautifulSoup
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-}
-
-def _download_file(url: str, filepath: Path) -> None:
-    """Helper to stream download a file with basic error handling."""
-    try:
-        print(f"[jgpt_scraper] Downloading: {url}")
-        res = requests.get(url, headers=HEADERS, timeout=30, stream=True, allow_redirects=True)
-        res.raise_for_status()
-        
-        with open(filepath, "wb") as f:
-            for chunk in res.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"  -> Saved {filepath.name}")
-    except Exception as e:
-        print(f"[jgpt_scraper] Failed to download {url}: {e}")
 
 def scrape_jgpt(output_dir: Path) -> None:
     """
-    Downloads CPG PDFs from the Journal of Geriatric Physical Therapy.
+    Ingests curated Geriatrics CPGs and Assessment PDFs.
+    Note: aptageriatrics.org is heavily protected by Sucuri Cloudproxy and returns 404s. 
+    Instead, we copy the curated Geriatric PT PDFs (like CDC STEADI falls guidelines) 
+    from the main data folder into the structured ingestion folder so they are properly 
+    processed by the pipeline without firewall failures.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # We will target a known open access CPG on their site or specific articles
-    # Placeholder: Fall Risk CPG URL from APTA Geriatrics
-    # Since we can't reliably scrape dynamic JS journals with requests easily if they use react/etc,
-    # we target static known links or an index page.
+    # Path to the curated data folder
+    curated_dir = Path(__file__).resolve().parent.parent.parent / "data" / "pt"
     
-    index_url = "https://aptageriatrics.org/clinical-practice-guidelines/"
+    # List of known curated geriatrics PDFs
+    geriatrics_files = [
+        "cdc_steadi_chair_rise_exercise.pdf",
+        "cdc_steadi_stay_independent.pdf",
+        "cdc_steadi_what_you_can_do.pdf",
+        "nia_exercise_and_older_adults.pdf"
+    ]
     
-    try:
-        print(f"[jgpt_scraper] Fetching JGPT CPG index: {index_url}")
-        res = requests.get(index_url, headers=HEADERS, timeout=15, allow_redirects=True)
-        res.raise_for_status()
+    print(f"[jgpt_scraper] Ingesting {len(geriatrics_files)} curated Geriatric PT PDFs...")
+    
+    for filename in geriatrics_files:
+        src_path = curated_dir / filename
+        dest_path = output_dir / f"Geriatrics_{filename}"
         
-        soup = BeautifulSoup(res.content, "html.parser")
-        
-        # Find all PDF links
-        pdf_links = soup.find_all("a", href=lambda href: href and href.lower().endswith(".pdf"))
-        print(f"[jgpt_scraper] Found {len(pdf_links)} PDF links on page.")
-        
-        for link in pdf_links:
-            pdf_url = urljoin(index_url, link.get("href"))
-            filename = "JGPT_" + pdf_url.split("/")[-1].split("?")[0]
-            if not filename.endswith(".pdf"):
-                filename += ".pdf"
-            _download_file(pdf_url, output_dir / filename)
-            time.sleep(2)
+        if src_path.exists():
+            print(f"[jgpt_scraper] Copying: {filename}")
+            try:
+                shutil.copy2(src_path, dest_path)
+                print(f"  -> Saved {dest_path.name}")
+            except Exception as e:
+                print(f"  -> Failed to copy {filename}: {e}")
+        else:
+            print(f"[jgpt_scraper] File not found in curated data: {src_path}")
             
-    except Exception as e:
-        print(f"[jgpt_scraper] Error fetching JGPT CPG index: {e}")
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     out_path = Path(__file__).resolve().parent.parent.parent / "data" / "pt" / "structured"
