@@ -74,12 +74,13 @@ class SpecialistAgent:
             # De-duped source filenames, in retrieval order → citation list.
             sources = []
             for doc in docs:
-                src = Path(doc.metadata.get("source", "unknown")).name
+                p = Path(doc.metadata.get("source", "unknown"))
+                src = f"{p.parent.name}/{p.name}" if p.name != "unknown" else "unknown"
                 if src not in sources:
                     sources.append(src)
 
             context = "\n\n".join(
-                f"[source: {Path(doc.metadata.get('source', 'unknown')).name}]\n"
+                f"[source: {Path(doc.metadata.get('source', 'unknown')).parent.name}/{Path(doc.metadata.get('source', 'unknown')).name}]\n"
                 f"{doc.page_content}"
                 for doc in docs
             )

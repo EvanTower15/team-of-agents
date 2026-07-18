@@ -132,13 +132,6 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "specialist applies yet.\n"
     "Do NOT use RED_FLAG -- urgent medical warning signs are handled "
     "separately, before you ever see the question.\n\n"
-    "IMPORTANT: if the question mentions a specific surgery, a surgeon's "
-    "clearance/instructions, surgical hardware, or a post-op timeline or "
-    "milestone -- even if that surgeon involvement already happened (e.g. "
-    "\"my surgeon already cleared me\") -- always include 'surgeon' in "
-    "specialists. The surgeon's post-op protocol still constrains what the "
-    "other specialists can safely recommend; it does not stop applying just "
-    "because the clearance was already given.\n\n"
     "EXAMPLES:\n"
     "Q: \"What's the best gym?\"\n"
     "THOUGHT: The user is asking a broad question lacking any context about their physical condition, goals, or injury status.\n"
@@ -146,9 +139,6 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "Q: \"My surgeon cleared me for lifting after ACL reconstruction\"\n"
     "THOUGHT: The user is transitioning back to training post-surgery. This requires the surgeon's post-op protocol, the PT for rehab, and the trainer for lifting.\n"
     "DECISION: TEAM | 0.95 | pt,trainer,surgeon | Transition to lifting post-op requires full team alignment.\n\n"
-    "Q: \"My surgeon cleared me for full weight-bearing 6 weeks after knee surgery -- how do I get back into leg training?\"\n"
-    "THOUGHT: The clearance already happened, but the surgeon's weight-bearing timeline still bounds what the PT and trainer can safely plan, so all three specialists apply.\n"
-    "DECISION: TEAM | 0.95 | pt,trainer,surgeon | Post-op weight-bearing status still constrains PT/trainer planning even though clearance was already given.\n\n"
     "Q: \"My knee hurts when I squat\"\n"
     "THOUGHT: The user is experiencing pain during a specific movement, which requires a physical therapist to diagnose or provide rehab exercises.\n"
     "DECISION: PT_ONLY | 0.9 | pt | Pain during movement requires PT assessment.\n\n"
@@ -166,7 +156,7 @@ def _parse_llm_response(raw: str) -> RouteDecision:
     """Parse 'LABEL | confidence | specialists | reason' robustly (tolerates
     messy output -- scans the whole response rather than trusting exact
     formatting, same defensive posture as the rest of this codebase)."""
-
+    
     # Extract the decision line for specialists and reason parsing
     decision_line = next((ln for ln in raw.strip().splitlines() if ln.strip().startswith("DECISION:")), raw.strip())
     if decision_line.startswith("DECISION:"):

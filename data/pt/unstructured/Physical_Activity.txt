@@ -1,0 +1,99 @@
+Original Editor - Anna Lowe
+
+Top Contributors - Ewa Jaraczewska , Ann Gates , Admin , Michelle Lee , Chelsea Mclene , Anna Lowe , Kim Jackson , Lucinda hampton , Mariam Hashem , Tarina van der Stockt , Rucha Gadgil , Jess Bell , Robin Tacchetti , Naomi O'Reilly , Stacy Schiurring , WikiSysop , Candace Goh and Shaimaa Eldib
+
+Contents
+
+Introduction [ edit | edit source ]
+
+Physical activity serves as a critical preventive measure against the growing global burden of non-communicable diseases (NCDs). While often used interchangeably in everyday conversation, the distinction between physical activity, exercise, and sport is essential for clinical practice. This article defines core concepts such as physical activity, exercise, and sport, and examines the significant health benefits of maintaining an active lifestyle, including the prevention of non-communicable diseases.
+
+While everyday conversation often treats physical activity , exercise , and sport as synonyms, physiotherapists must communicate precisely when discussing these concepts with clients. [1]
+
+Any movement of the body caused by the contraction of skeletal muscles that consumes energy is defined as physical activity (PA). [2] This broad category includes exercise and other bodily movements performed during work, play, domestic chores, recreational pursuits, and active travel. [3]
+
+Exercise is a planned, structured, and repetitive subcategory of physical activity. It is purposefully designed to improve or maintain specific components of physical fitness. The primary aim of exercise is to intentionally enhance physical fitness. This objective generally focuses on improving muscular strength and endurance, cardiovascular health, flexibility, and body composition, specifically the balance between fat tissue and muscle mass. [4]
+
+Sport represents a specialised subset of physical activity that builds on the foundations of exercise by adding greater structure and context. Competitive rules and an institutional structure characterise sport. Furthermore, it incorporates a vital social dimension that fosters strategic cooperation, community loyalty, and a common sense of identity. [5]
+
+PA exists on a spectrum ranging from sedentary behaviour, defined as very low energy expenditure during waking hours, to vigorous PA that meets or exceeds established health guidelines. Between these two extremes are individuals who remain active but do not reach the specific intensity or volume required to attain comprehensive health advantages.
+
+Types of Physical Activity [ edit | edit source ]
+
+Physiotherapists prescribe physical activity across four main categories: aerobic activity, muscle-strengthening activity , flexibility and mobility activities , and balance and coordination activities .
+
+Often referred to as endurance or cardiovascular activity, it involves continuous, rhythmic motions that increase ventilation and heart rate. Examples of such activities include swimming, dancing, cycling, jogging, and walking. These exercises are primarily designed to improve metabolic function, manage weight, and support cardiovascular health. [6]
+
+Muscle-strengthening activity refers to any movement performed against resistance. Examples of such activities include bodyweight exercises, weightlifting, resistance band training, and heavy manual labour like digging or carrying loads. These movements are designed to improve bone density, muscle mass, metabolic rate, and overall functional capacity. [6]
+
+Flexibility and mobility activities focus on improving joint range of motion and enhancing tissue extensibility. These activities incorporate practices such as structured stretching routines, yoga, and Pilates to help reduce muscular stiffness and support better overall movement quality. [6]
+
+These activities include static and dynamic tasks, such as Tai Chi or walking on uneven surfaces. For older populations and those with neurological conditions, such exercises are an important fall-prevention strategy. [6]
+
+Physical Inactivity [ edit | edit source ]
+
+Physical Inactivity (PI) is described as doing no or very little physical activity at work, at home, for transport or during discretionary time and not reaching physical activity guidelines deemed necessary to benefit public health. [7]
+
+Sedentary behaviour is distinct from physical inactivity. It refers to any walking activity characterised by an energy expenditure of less than or equal to 1.5 metabolic equivalents. In general, this means that any time a person is sitting or lying down, they are engaging in sedentary behaviour. Common sedentary behaviours include TV viewing, video game playing, computer use, driving automobiles, and reading. [8]
+
+Sedentary behaviour is considered an independent predictor of metabolic risk, even when individuals meet recommended levels of physical activity. [9]
+
+Benefits of Physical Activity [ edit | edit source ]
+
+The benefits of physical activity include the prevention and management of long-term conditions. Additionally, the evidence suggests that engaging in physical activity promotes health equity and social justice while improving physical, mental, and social health. [10]
+
+Physical activity offers health benefits across all stages of life. In children and adolescents, regular physical activity is vital for improving physical fitness, supporting bone health, and promoting healthy body composition. It advances positive mental health and augmented cognitive performance. Exercise additionally improves concentration, self-esteem, and school performance. [11] For adults and older individuals, maintaining an active lifestyle can lower the risk of all-cause mortality, cardiovascular disease, hypertension, certain cancers, and type 2 diabetes. Apart from physical disease prevention, activity is important in preventing falls among seniors while simultaneously elevating psychological well-being, strengthening cognitive function, and improving self-reported well-being. [12]
+
+A meta-analysis of over 1.8 million adults found that physically active individuals had an 11% lower risk of COVID-19 infection, a 36% lower risk of hospitalisation, and a 43% lower risk of COVID-19 mortality compared to inactive individuals. [13] [14]
+
+Meeting physical activity guidelines is associated with a lower incidence of depression. [15] A 2024 meta-analysis of 218 randomised controlled trials [16] found that multiple exercise modalities, walking, jogging, yoga, strength training, and Tai Chi,  produced clinically meaningful reductions in depressive symptoms.
+
+People with the highest levels of aerobic activity show roughly 10–20% lower risk across multiple cancer types, including breast, colorectal, and bladder cancers. Post-diagnosis physical activity is associated with a 37% lower cancer mortality risk compared to the least active patients. [17]
+
+WHO's Physical Activity Guidelines [ edit | edit source ]
+
+The WHO developed the "Global Recommendations on Physical Activity for Health" with the overall aim of providing national and regional level policy-makers with guidance on the dose-response relationship between the frequency, duration, intensity, type and the total amount of physical activity needed for the prevention of NCDs. [18]
+
+For health and well-being, WHO recommends at least 150 to 300 minutes of moderate-intensity aerobic activity per week (or the equivalent vigorous activity) for all adults, and an average of 60 minutes of moderate-intensity aerobic physical activity per day for children and adolescents. Muscle strengthening benefits everyone. Older adults (aged 65 years and older) should add physical activities that emphasise balance and coordination, as well as muscle strengthening, to help prevent falls and improve health. [2]
+
+Physical activity can be done as part of work, sport and leisure or transport (walking, wheeling and cycling), as well as everyday and household tasks. The WHO guidelines also states that regular physical activity throughout the life course enables people to live better and longer. [2]
+
+Sedentary behaviour can be unhealthy. [19] It can increase the risk of heart disease, cancer, and type 2 diabetes. Everyone can benefit from reducing sedentary behaviour, including people living with chronic conditions or disability. [20]
+
+Physical Activity Barriers and Facilitators [ edit | edit source ]
+
+Physical activity prescription requires a clinical assessment of barriers and enablers. Key barriers to physical activity include:
+
+Barriers to physical activity are multifactorial and require acknowledgement:
+
+This optional page discusses external and internal barriers to physical activity: Barriers to Physical Activity
+
+Physiotherapists can support clients by fostering enablers and leveraging behavioural strategies:
+
+Engaging in consistent physical activity is recognised for its capacity to improve health outcomes, while lowering the probability of mortality and the onset of chronic conditions. This behaviour is a key preventive measure against major non-communicable diseases (NCDs). Additionally  physical activity habits during youth significantly improve the likelihood of maintaining health into adulthood. [24] [25]
+
+Globally, the impact of physical inactivity is substantial.  Approximately 31% of the population aged 15 or older is classified as inactive. [26] Alongside risks such as tobacco consumption, poor nutrition, and hypertension, inactivity is a main cause of NCDs, which are now the leading cause of death worldwide. Physical inactivity alone is responsible for an estimated 7.2% of all global deaths each year. It is over 5 million lives that could be saved by increasing global activity levels. While inactivity is more common in wealthier nations, it is still a top ten risk factor for death in low-income countries, where 2.6 million attributable deaths occur. [19] [2]
+
+Global Physical Activity Strategy [ edit | edit source ]
+
+According to Salvo et al., there are three domains of physical activity: choice-driven active leisure, and necessity-driven active transport, and active labour. [10] This distinction matters enormously. In low-income countries, less than 10% of physical activity comes from leisure, while in high-income countries it accounts for over 30%. Many people globally are physically "busy" but not physically secure, moving out of necessity rather than genuine choice, often in unsafe or undignified conditions. [10]
+
+A 40-percentage-point gap exists in active leisure between the most privileged group, such as wealthy men in high-income countries, and the most disadvantaged, which include poor women in low-income countries. [27] Gender alone accounts for roughly a 15-percentage-point gap in leisure activity, consistent across all income levels. Those disparities are even wider when multiple disadvantages intersect. [10]
+
+Several points from the global physical activity strategy translate directly into practice: [13]
+
+Physiotherapy and Physical Activity [ edit | edit source ]
+
+To address the global physical inactivity crisis and the rise of lifestyle-related non-communicable diseases (NCDs), there is an urgent requirement to evolve physiotherapy methods for prescribing physical activity. Creating a more active society requires collaborative efforts among multiple stakeholders, which means physiotherapists must actively participate in community and individual engagement.
+
+Physiotherapists possess special advantages in this effort, including expert clinical knowledge, credibility with patients, and specialised skills in behaviour change. They offer essential access to individuals with long-term conditions through repeat consultations and exercise facilities, utilising injury or illness as "teachable moments" for health promotion.
+
+Extensive research has highlighted the strategies physiotherapists use to champion physical activity and prescribe moderate exercise. [28] [29] [30] These studies, focusing on therapist perceptions, self-efficacy, and attitudes, consistently show a positive acceptance of their health-promoting roles. Furthermore, practitioners may directly connect patients with community-based physical activity programs or establish professional roles that support existing community initiatives.
+
+The following are examples of physical activity guidelines from the UK and Canada:
+
+Resources [ edit | edit source ]
+
+Related Physiopedia Pages [ edit | edit source ]
+
+References [ edit | edit source ]

@@ -25,7 +25,8 @@ from typing import List
 import chromadb
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import PyPDFLoader, TextLoader
+from langchain_community.document_loaders import TextLoader
+from langchain_docling import DoclingLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -93,13 +94,15 @@ def load_folder_documents(folder: str) -> list:
         raise FileNotFoundError(f"Corpus folder not found: {folder}")
 
     all_docs = []
-    for path in sorted(folder_path.iterdir()):
+    for path in sorted(folder_path.rglob("*")):
+        if not path.is_file():
+            continue
         ext = path.suffix.lower()
         if ext not in _SUPPORTED_EXTS:
             if path.name != ".gitkeep":
                 print(f"[rag_core] Skipping unsupported file: {path.name}")
             continue
-        loader = PyPDFLoader(str(path)) if ext == ".pdf" else TextLoader(
+        loader = DoclingLoader(file_path=str(path)) if ext == ".pdf" else TextLoader(
             str(path), encoding="utf-8"
         )
         docs = loader.load()
@@ -134,6 +137,12 @@ def ingest_folder(folder: str, collection_name: str) -> int:
         return 0
 
     chunks = split_documents(docs)
+    
+    # ChromaDB rejects nested dictionaries in metadata (which DocLing generates).
+    # We must filter/flatten the complex metadata into primitives before inserting.
+    from langchain_community.vectorstores.utils import filter_complex_metadata
+    chunks = filter_complex_metadata(chunks)
+
     embeddings = _get_embeddings()
 
     # Chroma caps how many records one call may add; batching keeps us safe
