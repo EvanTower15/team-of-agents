@@ -1,6 +1,6 @@
-<svg width="100%" viewBox="0 0 920 660" role="img" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 920 720" role="img" xmlns="http://www.w3.org/2000/svg">
 <title>Recovery Team RAG architecture</title>
-<desc>Layered architecture: Streamlit UI calls the orchestrator; a router (RED_FLAG regex first, then Groq LLM classification) decides which specialist(s) apply; TEAM routes chain Orthopedic Surgeon, Physical Therapist, and Gym Trainer agents most-restrictive-first via peer_context, each backed by its own Chroma collection; a synthesis node merges their drafts into one attributed answer with a standing disclaimer.</desc>
+<desc>Layered architecture: Streamlit UI calls the orchestrator; a router (RED_FLAG regex first, then Groq LLM classification) produces a route decision that fans out to whichever specialist(s) apply -- PT_ONLY, TRAINER_ONLY, and SURGEON each reach their agent directly; TEAM routes chain Orthopedic Surgeon, Physical Therapist, and Gym Trainer agents most-restrictive-first via peer_context, which also carries structured constraints extracted by src/agents/constraints.py. Each agent is backed by its own Chroma collection; a synthesis node merges their drafts into one attributed answer with a standing disclaimer.</desc>
 <defs>
 <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
 </defs>
@@ -14,77 +14,81 @@
 <line x1="460" y1="76" x2="460" y2="106" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
 <!-- Orchestrator container -->
-<rect x="40" y="106" width="840" height="342" rx="20" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
+<rect x="40" y="106" width="840" height="404" rx="20" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
 <text x="60" y="128" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">Orchestrator — LangGraph StateGraph (orchestrator.py)</text>
 
-<!-- Router + route decision -->
-<rect x="60" y="146" width="230" height="56" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
-<text x="175" y="164" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Router (router.py)</text>
-<text x="175" y="182" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">RED_FLAG regex + Groq LLM</text>
+<!-- Router (narrow, stacked above the full-width route decision) -->
+<rect x="330" y="146" width="260" height="48" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+<text x="460" y="163" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Router (router.py)</text>
+<text x="460" y="179" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">RED_FLAG regex + Groq LLM</text>
+<line x1="460" y1="194" x2="460" y2="210" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<rect x="310" y="146" width="550" height="56" rx="8" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:0.5px"/>
-<text x="585" y="164" text-anchor="middle" dominant-baseline="central" style="fill:rgb(99,56,6);font-size:14px;font-weight:500">Route decision</text>
-<text x="585" y="182" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133,79,11);font-size:12px">PT_ONLY · TRAINER_ONLY · SURGEON · TEAM · RED_FLAG · CLARIFY</text>
+<!-- Route decision: spans the full width, directly above all three agents -->
+<rect x="60" y="210" width="800" height="48" rx="8" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:0.5px"/>
+<text x="460" y="228" text-anchor="middle" dominant-baseline="central" style="fill:rgb(99,56,6);font-size:14px;font-weight:500">Route decision</text>
+<text x="460" y="244" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133,79,11);font-size:12px">PT_ONLY · TRAINER_ONLY · SURGEON · TEAM · RED_FLAG · CLARIFY</text>
 
-<line x1="290" y1="174" x2="308" y2="174" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-
-<!-- down arrows into the three agents -->
-<line x1="185" y1="202" x2="185" y2="242" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="460" y1="202" x2="460" y2="242" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="735" y1="202" x2="735" y2="242" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<!-- down arrows into the three agents; each is independently reachable, not only via TEAM -->
+<line x1="185" y1="258" x2="185" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="460" y1="258" x2="460" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="735" y1="258" x2="735" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<text x="195" y="280" style="fill:rgb(82,81,78);font-size:10px">SURGEON route</text>
+<text x="470" y="280" style="fill:rgb(82,81,78);font-size:10px">PT_ONLY route</text>
+<text x="745" y="280" style="fill:rgb(82,81,78);font-size:10px">TRAINER_ONLY</text>
 
 <!-- Three specialist agents -->
-<rect x="60" y="244" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="185" y="262" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Orthopedic Surgeon</text>
-<text x="185" y="282" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Post-op protocols, timelines</text>
+<rect x="60" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="185" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Orthopedic Surgeon</text>
+<text x="185" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Post-op protocols, timelines</text>
 
-<rect x="335" y="244" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="460" y="262" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Physical Therapist</text>
-<text x="460" y="282" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Rehab, pain vs soreness, ROM</text>
+<rect x="335" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="460" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Physical Therapist</text>
+<text x="460" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Rehab, pain vs soreness, ROM</text>
 
-<rect x="610" y="244" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="735" y="262" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Gym Trainer</text>
-<text x="735" y="282" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Programming, progressive overload</text>
+<rect x="610" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="735" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Gym Trainer</text>
+<text x="735" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Programming, progressive overload</text>
 
-<!-- peer_context chain, most-restrictive first -->
-<text x="322" y="234" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
-<line x1="310" y1="278" x2="333" y2="278" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<text x="597" y="234" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
-<line x1="585" y1="278" x2="608" y2="278" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<!-- peer_context chain, most-restrictive first (TEAM route only) -->
+<text x="322" y="280" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
+<line x1="310" y1="330" x2="333" y2="330" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<text x="597" y="280" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
+<line x1="585" y1="330" x2="608" y2="330" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<text x="460" y="320" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">All three subclass SpecialistAgent (base.py) · consult() never raises</text>
-<text x="460" y="340" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">TEAM chains Surgeon → PT → Trainer, most-restrictive first — only whichever cues fired</text>
+<text x="460" y="374" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">All three subclass SpecialistAgent (base.py) · consult() never raises</text>
+<text x="460" y="388" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">TEAM chains Surgeon → PT → Trainer, most-restrictive first — only whichever cues fired</text>
+<text x="460" y="402" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">peer_context also carries structured constraints — extracted via src/agents/constraints.py</text>
 
 <!-- down arrows into synthesis -->
-<line x1="185" y1="304" x2="185" y2="372" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="460" y1="304" x2="460" y2="372" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="735" y1="304" x2="735" y2="372" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="185" y1="360" x2="185" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="460" y1="360" x2="460" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="735" y1="360" x2="735" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
 <!-- Synthesis -->
-<rect x="60" y="372" width="800" height="56" rx="8" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
-<text x="460" y="390" text-anchor="middle" dominant-baseline="central" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">synthesize_team_answer — care coordinator</text>
-<text x="460" y="408" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:12px">Attributes each specialist · surgeon wins post-op/hardware, PT wins otherwise · appends disclaimer</text>
+<rect x="60" y="434" width="800" height="56" rx="8" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
+<text x="460" y="452" text-anchor="middle" dominant-baseline="central" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">synthesize_team_answer — care coordinator</text>
+<text x="460" y="470" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:12px">Attributes each specialist · surgeon wins post-op/hardware, PT wins otherwise · appends disclaimer</text>
 
-<line x1="460" y1="448" x2="460" y2="478" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="460" y1="510" x2="460" y2="540" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
 <!-- Shared RAG core -->
-<rect x="40" y="478" width="840" height="160" rx="20" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
-<text x="60" y="500" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Shared RAG core (rag_core.py) — local MiniLM embeddings</text>
+<rect x="40" y="540" width="840" height="160" rx="20" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="60" y="562" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Shared RAG core (rag_core.py) — local MiniLM embeddings</text>
 
-<rect x="60" y="518" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="185" y="536" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: surgeon_docs</text>
-<text x="185" y="554" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Surgeon corpus, k=6</text>
+<rect x="60" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
+<text x="185" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: surgeon_docs</text>
+<text x="185" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Surgeon corpus, k=6</text>
 
-<rect x="335" y="518" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="460" y="536" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: pt_docs</text>
-<text x="460" y="554" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">PT corpus, k=6</text>
+<rect x="335" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
+<text x="460" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: pt_docs</text>
+<text x="460" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">PT corpus, k=6</text>
 
-<rect x="610" y="518" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="735" y="536" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: trainer_docs</text>
-<text x="735" y="554" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Trainer corpus, k=6</text>
+<rect x="610" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
+<text x="735" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: trainer_docs</text>
+<text x="735" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Trainer corpus, k=6</text>
 
-<text x="460" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">One ./chroma_db dir · one collection per agent (siloed knowledge)</text>
-<text x="460" y="618" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">Ingest: data/pt/, data/trainer/, data/surgeon/ → chunk 1000/150 → embed → persist</text>
+<text x="460" y="660" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">One ./chroma_db dir · one collection per agent (siloed knowledge)</text>
+<text x="460" y="680" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">Ingest: data/pt/, data/trainer/, data/surgeon/ → chunk 1000/150 → embed → persist</text>
 
 </g>
 </svg>
