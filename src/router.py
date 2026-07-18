@@ -132,9 +132,20 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "specialist applies yet.\n"
     "Do NOT use RED_FLAG -- urgent medical warning signs are handled "
     "separately, before you ever see the question.\n\n"
+    "EXAMPLES:\n"
+    "Q: \"What's the best gym?\"\n"
+    "THOUGHT: The user is asking a broad question lacking any context about their physical condition, goals, or injury status.\n"
+    "DECISION: CLARIFY | 0.9 | | Need more context about goals or injuries.\n\n"
+    "Q: \"My surgeon cleared me for lifting after ACL reconstruction\"\n"
+    "THOUGHT: The user is transitioning back to training post-surgery. This requires the surgeon's post-op protocol, the PT for rehab, and the trainer for lifting.\n"
+    "DECISION: TEAM | 0.95 | pt,trainer,surgeon | Transition to lifting post-op requires full team alignment.\n\n"
+    "Q: \"My knee hurts when I squat\"\n"
+    "THOUGHT: The user is experiencing pain during a specific movement, which requires a physical therapist to diagnose or provide rehab exercises.\n"
+    "DECISION: PT_ONLY | 0.9 | pt | Pain during movement requires PT assessment.\n\n"
     "Question: {question}\n\n"
-    "Respond with EXACTLY one line, no extra text:\n"
-    "LABEL | confidence | specialists | one short reason\n"
+    "Respond using EXACTLY the following two-line format:\n"
+    "THOUGHT: <Brief 1-2 sentence analysis of the user's intent and required expertise>\n"
+    "DECISION: LABEL | confidence | specialists | one short reason\n"
     "where LABEL is one of PT_ONLY, TRAINER_ONLY, SURGEON, TEAM, CLARIFY; "
     "confidence is a decimal between 0 and 1; specialists is a comma-separated "
     "subset of pt,trainer,surgeon (empty if CLARIFY)."
@@ -145,11 +156,15 @@ def _parse_llm_response(raw: str) -> RouteDecision:
     """Parse 'LABEL | confidence | specialists | reason' robustly (tolerates
     messy output -- scans the whole response rather than trusting exact
     formatting, same defensive posture as the rest of this codebase)."""
-    first_line = next((ln for ln in raw.strip().splitlines() if ln.strip()), raw.strip())
+
+    # Extract the decision line for specialists and reason parsing
+    decision_line = next((ln for ln in raw.strip().splitlines() if ln.strip().startswith("DECISION:")), raw.strip())
+    if decision_line.startswith("DECISION:"):
+        decision_line = decision_line[len("DECISION:"):].strip()
 
     label, pos = CLARIFY, None
     for cand in _LLM_LABELS:
-        m = re.search(rf"\b{cand}\b", raw)
+        m = re.search(rf"\b{cand}\b", decision_line)
         if m and (pos is None or m.start() < pos):
             label, pos = cand, m.start()
 
@@ -163,7 +178,7 @@ def _parse_llm_response(raw: str) -> RouteDecision:
             conf = val
             break
 
-    parts = [x.strip() for x in first_line.split("|")]
+    parts = [x.strip() for x in decision_line.split("|")]
 
     # Single-label routes always imply exactly that one specialist, regardless
     # of what the model put in the specialists field -- keeps `scores` honest
@@ -185,7 +200,7 @@ def _parse_llm_response(raw: str) -> RouteDecision:
     else:
         scores = dict(_EMPTY_SCORES)
 
-    reason = parts[-1] if len(parts) >= 2 else first_line
+    reason = parts[-1] if len(parts) >= 2 else decision_line
     reason = re.sub(r"\s+", " ", reason).strip()[:200]
 
     return RouteDecision(
