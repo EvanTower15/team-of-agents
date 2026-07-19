@@ -5,15 +5,15 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: PHASE 5 COMPLETE (2026-07-15) — `app.py` Streamlit chat UI live over
-> `answer_question()`, polished with custom CSS, specialist badges, sources/constraints/
-> debug-trace expanders, and per-agent rebuild buttons. **Ben's Groq key is now configured
-> and everything through Phase 5 has been re-verified live** (see the update notes on the
-> Phase 4c and Phase 5 results blocks below) — real battery run (13/15), real three-way
-> chain with real synthesized answers, real UI render via Streamlit's `AppTest`. Two real
-> routing-accuracy gaps found and logged, not yet fixed (see Phase 4c update). Next up:
-> Phase 6 (eval + demo assets) — James & Evan should still add their own Groq keys per §0,
-> since this was only verified with Ben's.**
+> **Status: PHASE 5 COMPLETE, ROUTER BATTERY AT 15/15 (2026-07-18)** — `app.py` Streamlit
+> chat UI live over `answer_question()`, and both routing-accuracy gaps from Phase 4c are
+> now fixed (prompt-only changes, see the Phase 4c update below). Next up: Phase 6 (eval +
+> demo assets) — James & Evan should still add their own Groq keys per §0, since all live
+> verification so far has only used Ben's. **Open, not yet decided:** James's
+> `feature/james-automated-ingestion` branch adds real corpus-scraping infrastructure, but
+> two of its three scrapers bypass Cloudflare/WAF bot protection and none of its output is
+> logged in `data/SOURCES.md` per §7.5 — only the router prompt fix from that branch has
+> been merged so far; the scrapers/data are intentionally left out pending a team decision.**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
@@ -118,6 +118,21 @@
 > specific surgery/clearance/post-op milestone should include 'surgeon' even when the
 > question is really about returning to training) but that's a follow-up task, not done here.
 > `AppTest`-based UI verification (see the Phase 5 update above) also ran during this pass.
+>
+> **Update (2026-07-18, both gaps fixed):** James independently hit the same two gaps and
+> pushed `feature/james-automated-ingestion` with `router.py` few-shot fixes for both — but
+> that branch also adds three data-collection scrapers (two of which bypass Cloudflare/WAF
+> bot protection) and ~21k lines of new corpus data with no `data/SOURCES.md` logging,
+> which needs its own team decision (D13) before merging. **Only the router prompt change
+> was cherry-picked into `main`**, not the scrapers/data. James's fix alone resolved gap #1
+> (CLARIFY) but not gap #2 (surgeon under-detection) — live-tested, still `{"pt":1,
+> "trainer":1,"surgeon":0}` on the flagship three-specialist question. Root cause: the model
+> was treating "my surgeon already cleared me" as a *resolved past event* rather than an
+> *ongoing constraint*, so it kept dropping surgeon from TEAM's specialist list. Fixed with
+> a follow-up prompt change: an explicit rule ("flag surgeon even when clearance already
+> happened, since the post-op protocol still binds PT/trainer") plus a second few-shot
+> example matching the failing phrasing pattern. **Full 15-question battery now 15/15**,
+> verified live. Both commits are on `main`.
 >
 > **Phase 4b results (2026-07-14)** — Ben, extending his Phase 4 ownership. Two additions
 > to the agent-to-agent framework: (1) **structured constraint extraction**
@@ -373,6 +388,7 @@ team-of-agents/
 ├── .env.example               # GROQ_API_KEY=  (Phase 0)
 ├── .gitignore                 # .env, chroma_db/, __pycache__, .venv (Phase 0)
 ├── recovery_team_rag_architecture.svg  # high-level design sketch (course deliverable)
+├── recovery_team_rag_architecture.png  # PNG export of the above, for slides/docs that don't take SVG
 ├── data/
 │   ├── pt/                    # PT corpus: .pdf/.txt/.md files (Phase 2)
 │   ├── trainer/               # Trainer corpus (Phase 3)
@@ -798,6 +814,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D10 | 2026-07-14 | Synthesis conflict priority: surgeon wins on post-op/hardware/weight-bearing precautions, PT wins on everything else involving pain/safety/rehab | Generalizes D4's "PT wins on safety" rule now that there are two clinical voices instead of one; each has a distinct area where its restriction should override the others |
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
 | D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
+| D13 | 2026-07-18 | Cherry-picked only the router prompt fix from James's `feature/james-automated-ingestion`; scrapers and new corpus data intentionally NOT merged | That branch's two Cloudflare/WAF-bypassing scrapers and ~21k lines of unlogged corpus data (no `data/SOURCES.md` entries, per §7.5) raise real licensing/curation questions the team hasn't decided on yet — merging code and data provenance decisions in one pass would have let the data question ride through on the coattails of an unrelated, low-risk prompt fix. The router fix itself was independently valuable (fixed the same 2 gaps logged in the Phase 4c update) and carried no such baggage |
 
 ---
 
