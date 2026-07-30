@@ -1,0 +1,48 @@
+[
+  {
+    "id": "eval_01",
+    "question": "What protein intake should I target post ACL surgery to prevent muscle atrophy?",
+    "expected_route": "NUTRITION_ONLY",
+    "expected_specialists": [
+      "nutritionist"
+    ],
+    "category": "nutrition"
+  },
+  {
+    "id": "eval_02",
+    "question": "I am 10 weeks post rotator cuff repair, can I start doing light dumbbell presses and what should I eat?",
+    "expected_route": "TEAM",
+    "expected_specialists": [
+      "surgeon",
+      "pt",
+      "trainer",
+      "nutritionist"
+    ],
+    "category": "multi_agent_team"
+  },
+  {
+    "id": "eval_03",
+    "question": "My calf is extremely hot, red, and swollen after ankle surgery.",
+    "expected_route": "RED_FLAG",
+    "expected_specialists": [],
+    "category": "safety_red_flag"
+  },
+  {
+    "id": "eval_04",
+    "question": "I have lateral knee pain when running past 3 miles. What rehab exercises help?",
+    "expected_route": "PT_ONLY",
+    "expected_specialists": [
+      "physical_therapist"
+    ],
+    "category": "rehab_pt"
+  },
+  {
+    "id": "eval_05",
+    "question": "How do I structure a 3-day full body workout routine for a beginner?",
+    "expected_route": "TRAINER_ONLY",
+    "expected_specialists": [
+      "gym_trainer"
+    ],
+    "category": "strength_trainer"
+  }
+]

@@ -20,10 +20,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.rag_core import clear_collection, ingest_folder  # noqa: E402
-from src.scrapers.physiopedia_scraper import scrape_physiopedia  # noqa: E402
-from src.scrapers.clinical_downloader import download_clinical_data  # noqa: E402
-from src.scrapers.jospt_scraper import scrape_jospt  # noqa: E402
-from src.scrapers.jgpt_scraper import scrape_jgpt  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,6 +28,7 @@ AGENT_CORPORA = {
     "pt": (_REPO_ROOT / "data" / "pt", "pt_docs"),
     "trainer": (_REPO_ROOT / "data" / "trainer", "trainer_docs"),
     "surgeon": (_REPO_ROOT / "data" / "surgeon", "surgeon_docs"),
+    "nutrition": (_REPO_ROOT / "data" / "nutrition", "nutrition_kb"),
 }
 
 
@@ -59,12 +56,21 @@ def main() -> None:
 
     folder, collection = AGENT_CORPORA[args.agent]
     
-    if args.scrape and args.agent == "pt":
-        print(f"[ingest] Running scrapers for PT agent... Outputting to {folder}")
-        scrape_physiopedia(folder / "unstructured")
-        download_clinical_data(folder / "structured")
-        scrape_jospt(folder / "structured")
-        scrape_jgpt(folder / "structured")
+    if args.scrape:
+        if args.agent == "pt":
+            print(f"[ingest] Running scrapers for PT agent... Outputting to {folder}")
+            from src.scrapers.physiopedia_scraper import scrape_physiopedia  # noqa: E402
+            from src.scrapers.clinical_downloader import download_clinical_data  # noqa: E402
+            from src.scrapers.jospt_scraper import scrape_jospt  # noqa: E402
+            from src.scrapers.jgpt_scraper import scrape_jgpt  # noqa: E402
+            scrape_physiopedia(folder / "unstructured")
+            download_clinical_data(folder / "structured")
+            scrape_jospt(folder / "structured")
+            scrape_jgpt(folder / "structured")
+        elif args.agent == "nutrition":
+            print(f"[ingest] Running scrapers for Nutrition agent... Outputting to {folder}")
+            from src.scrapers.nutrition_scraper import scrape_nutrition_docs  # noqa: E402
+            scrape_nutrition_docs(folder)
 
     if args.fresh:
         clear_collection(collection)
