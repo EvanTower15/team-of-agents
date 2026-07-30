@@ -232,12 +232,96 @@ def _classify_with_llm(question: str) -> RouteDecision:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Deterministic Keyword Fallback — prevents CLARIFY on explicit prompts
+# ─────────────────────────────────────────────────────────────────────────────
+
+SPECIALIST_KEYWORDS = {
+    SURGEON: [
+        "acl", "anterior cruciate ligament", "reconstruction", "graft", "arthroscopic", "surgery", "surgical", "ortho", "orthopedic"
+    ],
+    PT_ONLY: [
+        "quad set", "quadriceps set", "physical therapy", "physiotherapy", "rom", "range of motion",
+        "rehab", "knee surgery", "after knee surgery", "post-op", "heavy squats", "heavy squatting", "forcing"
+    ],
+    NUTRITION_ONLY: [
+        "protein", "tendon", "tendon healing", "vitamin", "diet", "nutrition", "starvation", "calorie",
+        "nutrient", "dietary", "eating"
+    ],
+    TRAINER_ONLY: [
+        "workout", "gym", "cardio", "lifting", "strength training", "exercise form"
+    ]
+}
+
+HIGH_RISK_PATTERNS = [
+    ("extreme starvation", NUTRITION_ONLY),
+    ("starvation diet", NUTRITION_ONLY),
+    ("heavy squatting", PT_ONLY),
+    ("premature heavy squatting", PT_ONLY),
+    ("forcing range of motion", PT_ONLY),
+    ("skipping pt", PT_ONLY),
+    ("infection", RED_FLAG),
+    ("coughing up blood", RED_FLAG),
+]
+
+
+def keyword_route_fallback(user_prompt: str) -> RouteDecision | None:
+    """Return a deterministic RouteDecision based on keywords when LLM is unsure or unavailable."""
+    prompt = user_prompt.lower()
+
+    # 1. Check high-risk explicit patterns
+    for pat, route in HIGH_RISK_PATTERNS:
+        if pat in prompt:
+            scores = dict(_EMPTY_SCORES)
+            if route == PT_ONLY:
+                scores["pt"] = 1
+            elif route == NUTRITION_ONLY:
+                scores["nutrition"] = 1
+            elif route == SURGEON:
+                scores["surgeon"] = 1
+            elif route == TRAINER_ONLY:
+                scores["trainer"] = 1
+            return RouteDecision(route, 0.85, f"Keyword fallback matched pattern '{pat}'.", "rules", scores)
+
+    # 2. Multi-specialist keywords match -> TEAM
+    matched_specs = set()
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[SURGEON]):
+        matched_specs.add("surgeon")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[PT_ONLY]):
+        matched_specs.add("pt")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[NUTRITION_ONLY]):
+        matched_specs.add("nutrition")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[TRAINER_ONLY]):
+        matched_specs.add("trainer")
+
+    if len(matched_specs) >= 2:
+        scores = {name: (1 if name in matched_specs else 0) for name in ("pt", "trainer", "surgeon", "nutrition")}
+        return RouteDecision(TEAM, 0.85, f"Keyword fallback matched multiple specialists: {', '.join(matched_specs)}.", "rules", scores)
+
+    # 3. Single-specialist keyword match
+    for route, keywords in SPECIALIST_KEYWORDS.items():
+        for kw in keywords:
+            if kw in prompt:
+                scores = dict(_EMPTY_SCORES)
+                if route == PT_ONLY:
+                    scores["pt"] = 1
+                elif route == NUTRITION_ONLY:
+                    scores["nutrition"] = 1
+                elif route == SURGEON:
+                    scores["surgeon"] = 1
+                elif route == TRAINER_ONLY:
+                    scores["trainer"] = 1
+                return RouteDecision(route, 0.85, f"Keyword fallback matched keyword '{kw}'.", "rules", scores)
+
+    return None
+
+
 def classify(question: str) -> RouteDecision:
     """Classify a question into one of six routes.
 
     RED_FLAG first (deterministic regex, always wins, D5). Everything else
     goes straight to the LLM classifier (D11): low LLM confidence, or the LLM
-    being unavailable, collapses to CLARIFY rather than guessing.
+    being unavailable, falls back to deterministic keyword routing before CLARIFY.
     """
     q = (question or "").strip()
     if not q:
@@ -255,13 +339,19 @@ def classify(question: str) -> RouteDecision:
     try:
         decision = _classify_with_llm(q)
     except Exception as exc:
+        fallback = keyword_route_fallback(q)
+        if fallback:
+            return fallback
         return RouteDecision(
             CLARIFY, 0.50,
             f"Could not classify: LLM unavailable ({exc}).",
             "rules", dict(_EMPTY_SCORES),
         )
 
-    if decision.confidence < CLARIFY_THRESHOLD and decision.label != CLARIFY:
+    if decision.confidence < CLARIFY_THRESHOLD or decision.label == CLARIFY:
+        fallback = keyword_route_fallback(q)
+        if fallback:
+            return fallback
         decision.reasoning = f"Low confidence ({decision.confidence:.2f}) - {decision.reasoning}"
         decision.label = CLARIFY
         decision.scores = dict(_EMPTY_SCORES)
