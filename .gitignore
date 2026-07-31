@@ -4,6 +4,11 @@
 # Generated vector store
 chroma_db/
 
+# Generated chat history database (WAL mode adds the -wal/-shm sidecars)
+data/chat_history.db
+data/chat_history.db-wal
+data/chat_history.db-shm
+
 # Python
 __pycache__/
 *.pyc

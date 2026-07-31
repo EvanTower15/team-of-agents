@@ -5,10 +5,25 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: FULL PRODUCTION EXTENSION COMPLETE (2026-07-30) — 4-agent MAS with Sports Nutritionist, GraphRAG, Multimodal Visual Search, Security Guardrails, Unit Economics, E2E CLI, and High-Risk Patient Safety LLM-as-a-Judge Evaluation.**
+> **Status: FULL PRODUCTION EXTENSION COMPLETE (2026-07-30) — 4-agent MAS with Sports Nutritionist, GraphRAG, Multimodal Visual Search, Security Guardrails, Unit Economics, E2E CLI, and High-Risk Patient Safety LLM-as-a-Judge Evaluation. Extended 2026-07-31 with multi-session chat persistence (Phase 5b).**
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Phase 5b results (2026-07-31)** — Evan. Chat history is now **durable and
+> multi-conversation**: `src/database.py` (§5.5, D13) persists `chat_sessions` +
+> `chat_transcripts` to `data/chat_history.db` (SQLAlchemy/SQLite, WAL + FK pragmas,
+> gitignored, `CHAT_DB_URL`-overridable), ported from opim-5517's HW8 persistence module and
+> extended with the multi-agent render metadata this project needs. `app.py` grew a sidebar
+> **Conversations** block — active chat (title · turns · tokens · accumulated Groq spend),
+> "New chat", a picker over the 25 most recently active conversations, explicit Open, and
+> delete — so a user can run several recovery scenarios in parallel (each browser tab holds
+> its own session) and reopen any of them after a reload with badges, sources, binding
+> restrictions, and the debug trace intact. Conversations title themselves from the first
+> question. Persistence deliberately did **not** touch the §5.4 contract or the agents: each
+> question still stands alone (see §7 point 4). `tests/test_database.py` adds 14 offline
+> tests; `AppTest` verified the five UI flows end-to-end headlessly (42 checks, 0 exceptions);
+> full suite 56 passed.
 >
 > **Phase 6+ Production System results (2026-07-30)** — Evan, Ben, James. Complete enterprise-grade expansion of the Recovery Team MAS:
 > 1. Added **Sports Nutritionist Agent** 🥗 (`src/agents/nutritionist.py` + `data/nutrition/`) for post-op nutrition, protein targets, and tendon/ligament healing.
@@ -391,7 +406,9 @@ team-of-agents/
 │   │   ├── orthopedic_surgeon.py   # persona + collection binding (Phase 4b)
 │   │   └── constraints.py          # structured constraint extraction (Phase 4b)
 │   ├── router.py              # hybrid rules→LLM route classifier (Phase 4, 4b)
-│   └── orchestrator.py        # LangGraph team workflow (Phase 4, 4b)
+│   ├── orchestrator.py        # LangGraph team workflow (Phase 4, 4b)
+│   └── database.py            # multi-session chat persistence, SQLAlchemy/SQLite (Phase 5b)
+├── data/chat_history.db       # generated, gitignored (WAL sidecars too)
 └── chroma_db/                 # generated, gitignored
 ```
 
@@ -483,6 +500,34 @@ def answer_question(question: str) -> dict:
 ```
 
 `app.py` calls **only** `answer_question()`. Nothing in the UI touches agents directly.
+
+### 5.5 `src/database.py` (Phase 5b) — multi-session chat persistence
+
+Ported from opim-5517's HW8 "Relational Persistence" module (D1 again: reuse what the
+team already understands) and extended for this project's multi-agent turns. Two tables,
+one row per conversation and one row per **turn**:
+
+```python
+init_db(db_url=DEFAULT_DB_URL) -> Engine            # idempotent: tables + WAL/FK pragmas
+create_session(user_metadata=None, *, title=None) -> str        # uuid4 hex session_id
+save_result(session_id, user_query, result, *, tokens=None, cost_usd=None) -> int
+    """Persists one turn straight from §5.4's result dict; back-fills the session
+       title from the first question and bumps updated_at in the same transaction."""
+save_transcript(session_id, user_query, agent_response, route_used, ...) -> int
+get_session_transcripts(session_id) -> list[ChatTranscript]     # chronological
+list_sessions(limit=25) -> list[ChatSession]                    # most recently active first
+session_stats(session_id) -> dict                               # turns, tokens, cost_usd
+rename_session(session_id, title) -> bool
+delete_session(session_id) -> bool                              # drops its transcripts too
+transcript_meta(transcript) -> dict                             # decoded JSON, UI-shaped
+```
+
+`route_used`, `route_confidence`, and the token/cost columns are typed columns (we
+aggregate over them); `agents_consulted`, `sources`, `constraints`, and `execution_trace`
+are JSON text (the UI reads them back whole and never filters on them), so a reloaded
+turn re-renders with the same badges, sources, restrictions, and debug trace as a live
+one. `app.py` owns *no* SQL — it calls these functions, and `transcript_meta()` hands it
+a dict in exactly the shape its renderer already expects.
 
 ---
 
@@ -588,9 +633,14 @@ This is health-adjacent software. Non-negotiables, enforced in code, not vibes:
    deliberately did NOT wire RED_FLAG to consult it (§11's other idea) — it stays
    deterministic/no-LLM per D5; blending in a surgeon lookup there is a separate decision
    for later, not bundled in silently.
-4. **No memory of the user in Phase A** — no PII stored; each question stands alone.
-   (Chat history in the Streamlit session is display-only.) Personalization is a Phase B+
-   discussion.
+4. **No memory of the user in Phase A** — no profile or identity is stored, and each
+   question still stands alone: the agents never receive prior turns as context, so
+   persistence changed what is *saved*, not what is *reasoned over*. Since Phase 5b, chat
+   history is written to a local SQLite file (`data/chat_history.db`, gitignored, never
+   sent anywhere) so a user can reopen past conversations — which does mean any health
+   detail a user types is on disk in plaintext, acceptable for a local single-user
+   educational demo but a real consideration before any hosted deployment. Personalization
+   (actually *using* history to tailor answers) remains a Phase B+ discussion.
 5. **Corpus licensing** — prefer US-government public-domain sources (see §8 Phases 2–3);
    every file in `data/` gets a line in `data/SOURCES.md` (URL, date fetched, license).
    No pirated textbooks, no wholesale scraping of copyrighted commercial sites.
@@ -744,6 +794,31 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
   route chip/badge/sources out, zero exceptions. Still worth a human clicking through it once
   in an actual browser before the video shoot, since `AppTest` doesn't render CSS/layout.
 
+### Phase 5b — Multi-session chat persistence — **Evan** *(follow-up to Phase 5; D13)*
+
+- [x] `src/database.py` (§5.5): `chat_sessions` + `chat_transcripts` on SQLAlchemy/SQLite,
+      WAL + `foreign_keys=ON` pragmas per connection, engine cached per URL so Streamlit's
+      reruns don't rebuild it, DB path overridable via `CHAT_DB_URL` for tests/CI
+- [x] `app.py` sidebar **Conversations** block: active-chat line (title · turns · tokens ·
+      accumulated $), "🧹 New chat" (replaces the old clear-chat button), a picker of the 25
+      most recently active conversations with explicit "📂 Open" and 🗑️ delete buttons.
+      Turns are saved *after* the answer renders, and a write failure surfaces as a sidebar
+      warning instead of costing the user the answer
+- [x] Conversation titles auto-derived from the first question (truncated to 60 chars), so
+      the picker reads as topics rather than uuids; sidebar timestamps converted from stored
+      UTC to the viewer's local time
+- [x] `tests/test_database.py` — 14 offline tests (no key needed): round-trip incl. the JSON
+      metadata columns, orphan-transcript FK rejection, title back-fill/truncation,
+      `updated_at` bump, recent-activity ordering, two-session isolation, stats aggregation,
+      rename, delete-cascade, WAL/FK pragmas
+- **Done when:** ask a question → reload the browser → the conversation is still in the
+  sidebar and reopens with its badges, sources, restrictions, and trace intact; a second
+  chat started with "New chat" stays separate. **Verified** via `streamlit.testing.v1.AppTest`
+  (the Phase 5 convention) with `answer_question` patched and a temp `CHAT_DB_URL`: 42 checks
+  across five flows — first render, two-turn save, New-chat isolation, reopen-from-a-fresh-
+  browser-session (4 messages replayed, route chip `TEAM (0.88)`, PT badge, history notice)
+  and delete — all passed with zero exceptions. Full suite: 56 passed.
+
 ### Phase 6 — Evaluation & demo assets — **whole team; James leads report**
 
 - [ ] Freeze the §9 battery results as a table (question → route → agents → verdict) —
@@ -799,6 +874,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D10 | 2026-07-14 | Synthesis conflict priority: surgeon wins on post-op/hardware/weight-bearing precautions, PT wins on everything else involving pain/safety/rehab | Generalizes D4's "PT wins on safety" rule now that there are two clinical voices instead of one; each has a distinct area where its restriction should override the others |
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
 | D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
+| D13 | 2026-07-31 | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 
 ---
 
