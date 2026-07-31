@@ -53,16 +53,17 @@ TEAM = "TEAM"
 CLARIFY = "CLARIFY"
 RED_FLAG = "RED_FLAG"
 SURGEON = "SURGEON"
+NUTRITION_ONLY = "NUTRITION_ONLY"
 
-VALID_LABELS = (PT_ONLY, TRAINER_ONLY, SURGEON, TEAM, CLARIFY, RED_FLAG)
+VALID_LABELS = (PT_ONLY, TRAINER_ONLY, SURGEON, NUTRITION_ONLY, TEAM, CLARIFY, RED_FLAG)
 # Labels the LLM may assign -- RED_FLAG is regex-only and never reaches it.
-_LLM_LABELS = (PT_ONLY, TRAINER_ONLY, SURGEON, TEAM, CLARIFY)
+_LLM_LABELS = (PT_ONLY, TRAINER_ONLY, SURGEON, NUTRITION_ONLY, TEAM, CLARIFY)
 
 CLARIFY_THRESHOLD = 0.50  # LLM confidence below this collapses to CLARIFY
 
 MODEL = "llama-3.3-70b-versatile"
 
-_EMPTY_SCORES = {"pt": 0, "trainer": 0, "surgeon": 0}
+_EMPTY_SCORES = {"pt": 0, "trainer": 0, "surgeon": 0, "nutrition": 0}
 
 
 @dataclass
@@ -112,11 +113,11 @@ _RED_FLAG_CUES = [
 
 _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "You are a routing classifier for an injury-recovery support team with "
-    "three specialists: an orthopedic surgeon, a physical therapist, and a "
-    "gym trainer.\n"
+    "four specialists: an orthopedic surgeon, a physical therapist, a "
+    "gym trainer, and a sports recovery nutritionist.\n"
     "Read the question and decide two things:\n"
     "1. Which specialist(s) are relevant to answering it: any combination of "
-    "'pt', 'trainer', 'surgeon'.\n"
+    "'pt', 'trainer', 'surgeon', 'nutrition'.\n"
     "2. A single overall LABEL summarizing that:\n"
     "   - PT_ONLY: only the physical therapist is relevant (pain, injuries, "
     "rehab progression, soreness-vs-injury, range of motion, mobility).\n"
@@ -126,8 +127,10 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "   - SURGEON: only the orthopedic surgeon is relevant (post-operative "
     "protocols, weight-bearing status, surgical hardware, wound/incision "
     "care, recovery timelines tied to a specific surgery).\n"
+    "   - NUTRITION_ONLY: only the recovery nutritionist is relevant (post-op "
+    "diet, collagen/protein targets, anti-inflammatory foods, supplements, hydration).\n"
     "   - TEAM: more than one specialist is relevant -- e.g. returning to "
-    "training while recovering from an injury or surgery.\n"
+    "training while recovering from an injury/surgery with dietary support.\n"
     "   - CLARIFY: too vague or underspecified to route safely -- no "
     "specialist applies yet.\n"
     "Do NOT use RED_FLAG -- urgent medical warning signs are handled "
@@ -136,9 +139,12 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "Q: \"What's the best gym?\"\n"
     "THOUGHT: The user is asking a broad question lacking any context about their physical condition, goals, or injury status.\n"
     "DECISION: CLARIFY | 0.9 | | Need more context about goals or injuries.\n\n"
-    "Q: \"My surgeon cleared me for lifting after ACL reconstruction\"\n"
-    "THOUGHT: The user is transitioning back to training post-surgery. This requires the surgeon's post-op protocol, the PT for rehab, and the trainer for lifting.\n"
-    "DECISION: TEAM | 0.95 | pt,trainer,surgeon | Transition to lifting post-op requires full team alignment.\n\n"
+    "Q: \"What should I eat to heal faster after ACL surgery?\"\n"
+    "THOUGHT: The user is asking specifically about dietary recovery and anti-inflammatory nutrition post-surgery.\n"
+    "DECISION: NUTRITION_ONLY | 0.95 | nutrition | Anti-inflammatory nutrition and protein intake for surgical healing.\n\n"
+    "Q: \"My surgeon cleared me for lifting after ACL reconstruction. What exercises and diet should I follow?\"\n"
+    "THOUGHT: The user is transitioning back to training post-surgery and needs surgical protocols, rehab exercises, training guidance, and nutrition.\n"
+    "DECISION: TEAM | 0.95 | pt,trainer,surgeon,nutrition | Post-op return to lifting with dietary protocol requires full team alignment.\n\n"
     "Q: \"My knee hurts when I squat\"\n"
     "THOUGHT: The user is experiencing pain during a specific movement, which requires a physical therapist to diagnose or provide rehab exercises.\n"
     "DECISION: PT_ONLY | 0.9 | pt | Pain during movement requires PT assessment.\n\n"
@@ -146,9 +152,9 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "Respond using EXACTLY the following two-line format:\n"
     "THOUGHT: <Brief 1-2 sentence analysis of the user's intent and required expertise>\n"
     "DECISION: LABEL | confidence | specialists | one short reason\n"
-    "where LABEL is one of PT_ONLY, TRAINER_ONLY, SURGEON, TEAM, CLARIFY; "
+    "where LABEL is one of PT_ONLY, TRAINER_ONLY, SURGEON, NUTRITION_ONLY, TEAM, CLARIFY; "
     "confidence is a decimal between 0 and 1; specialists is a comma-separated "
-    "subset of pt,trainer,surgeon (empty if CLARIFY)."
+    "subset of pt,trainer,surgeon,nutrition (empty if CLARIFY)."
 )
 
 
@@ -184,19 +190,21 @@ def _parse_llm_response(raw: str) -> RouteDecision:
     # of what the model put in the specialists field -- keeps `scores` honest
     # even if the model's list was empty or malformed.
     if label == PT_ONLY:
-        scores = {"pt": 1, "trainer": 0, "surgeon": 0}
+        scores = {"pt": 1, "trainer": 0, "surgeon": 0, "nutrition": 0}
     elif label == TRAINER_ONLY:
-        scores = {"pt": 0, "trainer": 1, "surgeon": 0}
+        scores = {"pt": 0, "trainer": 1, "surgeon": 0, "nutrition": 0}
     elif label == SURGEON:
-        scores = {"pt": 0, "trainer": 0, "surgeon": 1}
+        scores = {"pt": 0, "trainer": 0, "surgeon": 1, "nutrition": 0}
+    elif label == NUTRITION_ONLY:
+        scores = {"pt": 0, "trainer": 0, "surgeon": 0, "nutrition": 1}
     elif label == TEAM:
         named_field = parts[2] if len(parts) >= 4 else ""
         named = {tok.strip().lower() for tok in named_field.split(",") if tok.strip()}
-        scores = {name: (1 if name in named else 0) for name in ("pt", "trainer", "surgeon")}
+        scores = {name: (1 if name in named else 0) for name in ("pt", "trainer", "surgeon", "nutrition")}
         # A model that says TEAM but names <2 specialists is being inconsistent;
-        # default to all three rather than silently under-chaining.
+        # default to all four rather than silently under-chaining.
         if sum(scores.values()) < 2:
-            scores = {"pt": 1, "trainer": 1, "surgeon": 1}
+            scores = {"pt": 1, "trainer": 1, "surgeon": 1, "nutrition": 1}
     else:
         scores = dict(_EMPTY_SCORES)
 
@@ -224,12 +232,96 @@ def _classify_with_llm(question: str) -> RouteDecision:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Deterministic Keyword Fallback — prevents CLARIFY on explicit prompts
+# ─────────────────────────────────────────────────────────────────────────────
+
+SPECIALIST_KEYWORDS = {
+    SURGEON: [
+        "acl", "anterior cruciate ligament", "reconstruction", "graft", "arthroscopic", "surgery", "surgical", "ortho", "orthopedic"
+    ],
+    PT_ONLY: [
+        "quad set", "quadriceps set", "physical therapy", "physiotherapy", "rom", "range of motion",
+        "rehab", "knee surgery", "after knee surgery", "post-op", "heavy squats", "heavy squatting", "forcing"
+    ],
+    NUTRITION_ONLY: [
+        "protein", "tendon", "tendon healing", "vitamin", "diet", "nutrition", "starvation", "calorie",
+        "nutrient", "dietary", "eating"
+    ],
+    TRAINER_ONLY: [
+        "workout", "gym", "cardio", "lifting", "strength training", "exercise form"
+    ]
+}
+
+HIGH_RISK_PATTERNS = [
+    ("extreme starvation", NUTRITION_ONLY),
+    ("starvation diet", NUTRITION_ONLY),
+    ("heavy squatting", PT_ONLY),
+    ("premature heavy squatting", PT_ONLY),
+    ("forcing range of motion", PT_ONLY),
+    ("skipping pt", PT_ONLY),
+    ("infection", RED_FLAG),
+    ("coughing up blood", RED_FLAG),
+]
+
+
+def keyword_route_fallback(user_prompt: str) -> RouteDecision | None:
+    """Return a deterministic RouteDecision based on keywords when LLM is unsure or unavailable."""
+    prompt = user_prompt.lower()
+
+    # 1. Check high-risk explicit patterns
+    for pat, route in HIGH_RISK_PATTERNS:
+        if pat in prompt:
+            scores = dict(_EMPTY_SCORES)
+            if route == PT_ONLY:
+                scores["pt"] = 1
+            elif route == NUTRITION_ONLY:
+                scores["nutrition"] = 1
+            elif route == SURGEON:
+                scores["surgeon"] = 1
+            elif route == TRAINER_ONLY:
+                scores["trainer"] = 1
+            return RouteDecision(route, 0.85, f"Keyword fallback matched pattern '{pat}'.", "rules", scores)
+
+    # 2. Multi-specialist keywords match -> TEAM
+    matched_specs = set()
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[SURGEON]):
+        matched_specs.add("surgeon")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[PT_ONLY]):
+        matched_specs.add("pt")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[NUTRITION_ONLY]):
+        matched_specs.add("nutrition")
+    if any(k in prompt for k in SPECIALIST_KEYWORDS[TRAINER_ONLY]):
+        matched_specs.add("trainer")
+
+    if len(matched_specs) >= 2:
+        scores = {name: (1 if name in matched_specs else 0) for name in ("pt", "trainer", "surgeon", "nutrition")}
+        return RouteDecision(TEAM, 0.85, f"Keyword fallback matched multiple specialists: {', '.join(matched_specs)}.", "rules", scores)
+
+    # 3. Single-specialist keyword match
+    for route, keywords in SPECIALIST_KEYWORDS.items():
+        for kw in keywords:
+            if kw in prompt:
+                scores = dict(_EMPTY_SCORES)
+                if route == PT_ONLY:
+                    scores["pt"] = 1
+                elif route == NUTRITION_ONLY:
+                    scores["nutrition"] = 1
+                elif route == SURGEON:
+                    scores["surgeon"] = 1
+                elif route == TRAINER_ONLY:
+                    scores["trainer"] = 1
+                return RouteDecision(route, 0.85, f"Keyword fallback matched keyword '{kw}'.", "rules", scores)
+
+    return None
+
+
 def classify(question: str) -> RouteDecision:
     """Classify a question into one of six routes.
 
     RED_FLAG first (deterministic regex, always wins, D5). Everything else
     goes straight to the LLM classifier (D11): low LLM confidence, or the LLM
-    being unavailable, collapses to CLARIFY rather than guessing.
+    being unavailable, falls back to deterministic keyword routing before CLARIFY.
     """
     q = (question or "").strip()
     if not q:
@@ -247,13 +339,19 @@ def classify(question: str) -> RouteDecision:
     try:
         decision = _classify_with_llm(q)
     except Exception as exc:
+        fallback = keyword_route_fallback(q)
+        if fallback:
+            return fallback
         return RouteDecision(
             CLARIFY, 0.50,
             f"Could not classify: LLM unavailable ({exc}).",
             "rules", dict(_EMPTY_SCORES),
         )
 
-    if decision.confidence < CLARIFY_THRESHOLD and decision.label != CLARIFY:
+    if decision.confidence < CLARIFY_THRESHOLD or decision.label == CLARIFY:
+        fallback = keyword_route_fallback(q)
+        if fallback:
+            return fallback
         decision.reasoning = f"Low confidence ({decision.confidence:.2f}) - {decision.reasoning}"
         decision.label = CLARIFY
         decision.scores = dict(_EMPTY_SCORES)

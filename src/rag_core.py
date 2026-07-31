@@ -26,7 +26,10 @@ import chromadb
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import TextLoader
-from langchain_docling import DoclingLoader
+try:
+    from langchain_docling import DoclingLoader
+except ImportError:
+    DoclingLoader = None
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
@@ -102,9 +105,14 @@ def load_folder_documents(folder: str) -> list:
             if path.name != ".gitkeep":
                 print(f"[rag_core] Skipping unsupported file: {path.name}")
             continue
-        loader = DoclingLoader(file_path=str(path)) if ext == ".pdf" else TextLoader(
-            str(path), encoding="utf-8"
-        )
+        if ext == ".pdf":
+            if DoclingLoader is not None:
+                loader = DoclingLoader(file_path=str(path))
+            else:
+                from langchain_community.document_loaders import PyPDFLoader
+                loader = PyPDFLoader(str(path))
+        else:
+            loader = TextLoader(str(path), encoding="utf-8")
         docs = loader.load()
         all_docs.extend(docs)
         print(f"[rag_core] Loaded {len(docs)} document(s) from {path.name}")

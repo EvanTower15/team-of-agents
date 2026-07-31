@@ -47,6 +47,7 @@ from src.router import (  # noqa: E402
     PT_ONLY,
     TRAINER_ONLY,
     SURGEON,
+    NUTRITION_ONLY,
     TEAM,
     CLARIFY,
     RED_FLAG,
@@ -55,13 +56,17 @@ from src.rag_core import get_llm  # noqa: E402
 from src.agents.physical_therapist import PhysicalTherapistAgent  # noqa: E402
 from src.agents.gym_trainer import GymTrainerAgent  # noqa: E402
 from src.agents.orthopedic_surgeon import OrthopedicSurgeonAgent  # noqa: E402
+from src.agents.nutritionist import NutritionistAgent  # noqa: E402
 from src.agents.constraints import extract_constraints, format_constraints_block  # noqa: E402
+from src.eval.tracing import init_langsmith_tracing  # noqa: E402
 
 load_dotenv()
+init_langsmith_tracing()
 
 _SURGEON = OrthopedicSurgeonAgent()
 _PT = PhysicalTherapistAgent()
 _TRAINER = GymTrainerAgent()
+_NUTRITIONIST = NutritionistAgent()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fixed texts (§7.2 / §7.3 — code constants, never LLM-generated)
@@ -96,13 +101,15 @@ _SYNTH_PROMPT = ChatPromptTemplate.from_template(
     "- Use ONLY the drafts as material. Add no new exercises, facts, or "
     "medical claims of your own.\n"
     "- Attribute advice to its specialist: 'Your surgeon advises...', 'Your "
-    "physical therapist advises...', 'Your trainer suggests...'.\n"
+    "physical therapist advises...', 'Your trainer suggests...', 'Your nutritionist recommends...'.\n"
     "- If the drafts conflict, say so explicitly. On post-op precautions, "
     "hardware, or weight-bearing status, follow the surgeon. On anything "
     "else involving pain, safety, or rehab restrictions, follow the physical "
     "therapist.\n"
     "- Keep the inline [source: filename] citations exactly as they appear "
     "in the drafts.\n"
+    "- Keep the response CRISP, CONCISE, and DIRECT. Eliminate repetitive phrases, "
+    "redundant restatements, or wordy preamble.\n"
     "- Do not add any disclaimer; that is appended separately.\n\n"
     "Question: {question}\n\n"
     "Specialist drafts:\n{drafts}\n\n"
@@ -138,14 +145,16 @@ class TeamState(TypedDict, total=False):
     route_confidence: float
     route_reasoning: str
     route_method: str
-    route_scores: dict     # {"pt": int, "trainer": int, "surgeon": int}
+    route_scores: dict     # {"pt": int, "trainer": int, "surgeon": int, "nutrition": int}
 
     surgeon_result: dict   # SpecialistAgent.consult() output
     pt_result: dict
     trainer_result: dict
+    nutrition_result: dict
 
     surgeon_constraints: list  # extract_constraints() output, chained forward
     pt_constraints: list
+    nutrition_constraints: list
 
     final_answer: str
     sources: dict         # agent name -> [source filenames]
@@ -222,10 +231,6 @@ def consult_pt(state: TeamState) -> dict:
 
 
 def consult_trainer(state: TeamState) -> dict:
-    # Agent-to-agent handoff (D4): on the TEAM route the trainer must build
-    # around the upstream specialists' constraints, so their structured
-    # constraints + raw drafts ride along as peer_context, most-restrictive
-    # first (surgeon, then PT).
     blocks = []
     surgeon, pt = state.get("surgeon_result"), state.get("pt_result")
     if state.get("route") == TEAM and _ok(surgeon):
@@ -250,10 +255,42 @@ def consult_trainer(state: TeamState) -> dict:
     }
 
 
+def consult_nutritionist(state: TeamState) -> dict:
+    blocks = []
+    surgeon, pt, tr = state.get("surgeon_result"), state.get("pt_result"), state.get("trainer_result")
+    if state.get("route") == TEAM and _ok(surgeon):
+        blocks.append(
+            format_constraints_block(state.get("surgeon_constraints") or [], "SURGEON")
+            + surgeon["answer"]
+        )
+    if state.get("route") == TEAM and _ok(pt):
+        blocks.append(
+            format_constraints_block(state.get("pt_constraints") or [], "PT")
+            + pt["answer"]
+        )
+    if state.get("route") == TEAM and _ok(tr):
+        blocks.append(
+            "GYM TRAINER RECOMMENDATIONS:\n" + tr["answer"]
+        )
+    peer = "\n\n".join(blocks) or None
+    result = _NUTRITIONIST.consult(state["question"], peer_context=peer)
+    constraints = extract_constraints(result["answer"]) if _ok(result) else []
+    note = result["error"] or (
+        f"{len(result['sources'])} source(s)"
+        + (f", with {len(blocks)} upstream draft(s) as peer_context" if blocks else "")
+    )
+    return {
+        "nutrition_result": result,
+        "nutrition_constraints": constraints,
+        "execution_trace": [f"consult_nutritionist: {note}"],
+    }
+
+
 def synthesize_team_answer(state: TeamState) -> dict:
     drafts, sources = [], {}
     surgeon = state.get("surgeon_result")
     pt, tr = state.get("pt_result"), state.get("trainer_result")
+    nut = state.get("nutrition_result")
     if _ok(surgeon):
         drafts.append(f"ORTHOPEDIC SURGEON DRAFT:\n{surgeon['answer']}")
         sources["orthopedic_surgeon"] = surgeon["sources"]
@@ -263,6 +300,24 @@ def synthesize_team_answer(state: TeamState) -> dict:
     if _ok(tr):
         drafts.append(f"GYM TRAINER DRAFT:\n{tr['answer']}")
         sources["gym_trainer"] = tr["sources"]
+    if _ok(nut):
+        drafts.append(f"SPORTS NUTRITIONIST DRAFT:\n{nut['answer']}")
+        sources["nutritionist"] = nut["sources"]
+
+    try:
+        from src.graph_rag.kuzu_graph import ClinicalGraphRAG
+        graph_rag = ClinicalGraphRAG()
+        graph_chain = graph_rag.query_multihop_chain(state["question"])
+        if graph_chain.get("matched_entity"):
+            graph_summary = (
+                f"CLINICAL GRAPH RAG MULTI-HOP PATHWAYS ({graph_chain['matched_entity']}):\n"
+                f"- Contraindicated Movements: {', '.join(graph_chain['contraindicated_movements'])}\n"
+                f"- Recommended Rehab Exercises: {', '.join(graph_chain['rehab_exercises'])}\n"
+                f"- Healing Nutrients & Synergies: {', '.join([n['nutrient'] for n in graph_chain['multihop_nutrient_pathways']])}"
+            )
+            drafts.append(graph_summary)
+    except Exception:
+        pass
 
     if not drafts:  # conditional edges should prevent this; guard anyway
         return {
@@ -352,19 +407,21 @@ def fallback_handler(state: TeamState) -> dict:
 def _route_selector(state: TeamState) -> str:
     route = state["route"]
     if route == TEAM:
-        # Chain most-restrictive-first, but only through specialists whose
-        # cues actually fired (D4 generalized to three agents) -- a plain
-        # PT+trainer TEAM question never wastes a call on the surgeon.
         scores = state.get("route_scores") or {}
         if scores.get("surgeon", 0) > 0:
             return "consult_surgeon"
         if scores.get("pt", 0) > 0:
             return "consult_pt"
+        if scores.get("trainer", 0) > 0:
+            return "consult_trainer"
+        if scores.get("nutrition", 0) > 0:
+            return "consult_nutritionist"
         return "consult_trainer"
     return {
         PT_ONLY: "consult_pt",
         TRAINER_ONLY: "consult_trainer",
         SURGEON: "consult_surgeon",
+        NUTRITION_ONLY: "consult_nutritionist",
         RED_FLAG: "safety_response",
         CLARIFY: "ask_clarification",
     }[route]
@@ -377,6 +434,8 @@ def _after_surgeon(state: TeamState) -> str:
             return "consult_pt"
         if scores.get("trainer", 0) > 0:
             return "consult_trainer"
+        if scores.get("nutrition", 0) > 0:
+            return "consult_nutritionist"
     return "synthesize" if _ok(state.get("surgeon_result")) else "fallback"
 
 
@@ -385,15 +444,31 @@ def _after_pt(state: TeamState) -> str:
         scores = state.get("route_scores") or {}
         if scores.get("trainer", 0) > 0:
             return "consult_trainer"
-        # Even if the PT errored, an already-usable surgeon draft can synthesize alone.
+        if scores.get("nutrition", 0) > 0:
+            return "consult_nutritionist"
         ok = _ok(state.get("pt_result")) or _ok(state.get("surgeon_result"))
         return "synthesize" if ok else "fallback"
     return "synthesize" if _ok(state.get("pt_result")) else "fallback"
 
 
 def _after_trainer(state: TeamState) -> str:
+    if state.get("route") == TEAM:
+        scores = state.get("route_scores") or {}
+        if scores.get("nutrition", 0) > 0:
+            return "consult_nutritionist"
     if (
         _ok(state.get("trainer_result"))
+        or _ok(state.get("pt_result"))
+        or _ok(state.get("surgeon_result"))
+    ):
+        return "synthesize"
+    return "fallback"
+
+
+def _after_nutritionist(state: TeamState) -> str:
+    if (
+        _ok(state.get("nutrition_result"))
+        or _ok(state.get("trainer_result"))
         or _ok(state.get("pt_result"))
         or _ok(state.get("surgeon_result"))
     ):
@@ -408,6 +483,7 @@ def _get_graph():
     g.add_node("consult_surgeon", consult_surgeon)
     g.add_node("consult_pt", consult_pt)
     g.add_node("consult_trainer", consult_trainer)
+    g.add_node("consult_nutritionist", consult_nutritionist)
     g.add_node("synthesize_team_answer", synthesize_team_answer)
     g.add_node("safety_response", safety_response)
     g.add_node("ask_clarification", ask_clarification)
@@ -421,6 +497,7 @@ def _get_graph():
             "consult_pt": "consult_pt",
             "consult_trainer": "consult_trainer",
             "consult_surgeon": "consult_surgeon",
+            "consult_nutritionist": "consult_nutritionist",
             "safety_response": "safety_response",
             "ask_clarification": "ask_clarification",
         },
@@ -431,6 +508,7 @@ def _get_graph():
         {
             "consult_pt": "consult_pt",
             "consult_trainer": "consult_trainer",
+            "consult_nutritionist": "consult_nutritionist",
             "synthesize": "synthesize_team_answer",
             "fallback": "fallback_handler",
         },
@@ -440,6 +518,7 @@ def _get_graph():
         _after_pt,
         {
             "consult_trainer": "consult_trainer",
+            "consult_nutritionist": "consult_nutritionist",
             "synthesize": "synthesize_team_answer",
             "fallback": "fallback_handler",
         },
@@ -447,6 +526,15 @@ def _get_graph():
     g.add_conditional_edges(
         "consult_trainer",
         _after_trainer,
+        {
+            "consult_nutritionist": "consult_nutritionist",
+            "synthesize": "synthesize_team_answer",
+            "fallback": "fallback_handler",
+        },
+    )
+    g.add_conditional_edges(
+        "consult_nutritionist",
+        _after_nutritionist,
         {"synthesize": "synthesize_team_answer", "fallback": "fallback_handler"},
     )
     g.add_edge("synthesize_team_answer", END)
@@ -462,12 +550,7 @@ def _get_graph():
 
 
 def answer_question(question: str) -> dict:
-    """Run the team graph on one question and return the §5.4 result dict.
-
-    ``constraints`` is an additive field (agent name -> extract_constraints()
-    output) added in Phase 4b -- non-breaking for any existing caller, and
-    gives the UI a structured restrictions list to render alongside the
-    prose answer."""
+    """Run the team graph on one question and return the §5.4 result dict."""
     state = _get_graph().invoke({"question": question, "execution_trace": []})
 
     agents_consulted = [
@@ -476,6 +559,7 @@ def answer_question(question: str) -> dict:
             ("orthopedic_surgeon", state.get("surgeon_result")),
             ("physical_therapist", state.get("pt_result")),
             ("gym_trainer", state.get("trainer_result")),
+            ("nutritionist", state.get("nutrition_result")),
         )
         if _ok(result)
     ]
@@ -484,6 +568,7 @@ def answer_question(question: str) -> dict:
         for name, field in (
             ("orthopedic_surgeon", "surgeon_constraints"),
             ("physical_therapist", "pt_constraints"),
+            ("nutritionist", "nutrition_constraints"),
         )
         if state.get(field)
     }

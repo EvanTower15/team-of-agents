@@ -491,3 +491,39 @@ regex-era numbers for historical comparison.
   raw draft in `peer_context`.
 - **Red flag:** a symptom pattern that warrants urgent medical evaluation rather than
   advice from this tool. The one route still decided by regex, not the LLM (D5).
+
+---
+
+## 12. Extended Multi-Agent System Capabilities
+
+### 12.1 Sports Nutritionist Specialist Agent 🥗
+- **Domain:** Post-operative recovery nutrition, protein synthesis targets (1.2–2.0g/kg), anti-inflammatory micronutrients (Zinc, Vitamin C, Omega-3), and tendon/ligament collagen healing protocols.
+- **Knowledge Base:** Siloed under `data/nutrition/` and embedded into `chroma_db/nutritionist_docs`.
+
+### 12.2 GraphRAG Multi-Hop Knowledge Graph Engine
+- **Technology:** Integrated Kùzu Graph Database (`src/graph_rag/kuzu_graph.py`).
+- **Nodes & Edges:** Explicit medical entities (`Procedure`, `Nutrient`, `Exercise`, `Contraindication`, `Complication`) connected via semantic relationships (`REQUIRES`, `ACCELERATES`, `CONTRAINDICATES`).
+- **Multi-Hop Traversal:** Enables non-trivial multi-step clinical reasoning (e.g. `Procedure -> Contraindication -> Alternative Exercise -> Healing Nutrient`).
+
+### 12.3 Multimodal Visual Exercise RAG Search Engine
+- **Technology:** HuggingFace `CLIP` (`openai/clip-vit-base-patch32`) image-text embedding model.
+- **Media Ingestion:** Scraped visual exercise diagrams and extracted inline PDF visual figures across all 4 specialist knowledge bases.
+- **Semantic Visual Matching:** Computes cross-modal cosine similarity between patient rehab queries and visual exercise diagrams.
+
+### 12.4 Security Scanners & Guardrail System
+- **Location:** `src/security/guardrails.py`
+- **Prompt Injection Scanner:** Intercepts system prompt disclosure requests, DAN jailbreaks, instruction overrides, and SQL injection attempts (`DROP TABLE`, `UNION SELECT`).
+- **PII Redaction Engine:** Redacts Social Security Numbers (`[SSN_REDACTED]`), email addresses, and phone numbers before context reaches LLMs.
+
+### 12.5 Business Unit Economics & AI Budget Overrun Controls
+- **Location:** `src/business/unit_economics.py`
+- **Groq Token Cost Calculator:** Real-time tracking of input ($0.59/1M) and output ($0.79/1M) Groq `Llama-3.3-70B` token costs.
+- **Compute Savings:** Tracks 100% free local HuggingFace embedding compute savings.
+- **Budget Overrun Guard:** Enforces hard limits ($0.05 max per query, $1.00 max per session) to prevent runaway loops.
+- **Vertical AI ROI:** Demonstrates **100x+ cost savings** compared to human clinical consultation hours ($150–$350/hr).
+
+### 12.6 High-Risk Patient Safety & LLM-as-a-Judge Evaluator
+- **Location:** `tests/test_high_risk_scenarios.py` & `src/eval/eval_suite.py`
+- **Stress-Test Benchmark:** Tests uninsured / self-treating patient scenarios (premature 225lb heavy gym squatting, skipping PT visits, forcing shoulder ROM, extreme 500 cal/day starvation diets, infection red-flags).
+- **LLM-as-a-Judge Evaluation:** Uses Groq `Llama-3.3-70B` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
+

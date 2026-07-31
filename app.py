@@ -27,9 +27,10 @@ SPECIALIST_META = {
     "orthopedic_surgeon": {"icon": "🦴", "label": "Orthopedic Surgeon", "color": "#6366f1"},
     "physical_therapist": {"icon": "🩺", "label": "Physical Therapist", "color": "#0d9488"},
     "gym_trainer": {"icon": "🏋️", "label": "Gym Trainer", "color": "#ea580c"},
+    "nutritionist": {"icon": "🥗", "label": "Nutritionist", "color": "#16a34a"},
 }
 
-AGENT_FLAGS = ("pt", "trainer", "surgeon")
+AGENT_FLAGS = ("pt", "trainer", "surgeon", "nutrition")
 
 st.set_page_config(page_title="Recovery Team", page_icon="🩹", layout="wide")
 
@@ -116,6 +117,22 @@ with st.sidebar:
     show_debug = st.toggle("Show routing debug trace", value=False)
 
     st.divider()
+    with st.expander("💰 Business Unit Economics & Strategy"):
+        try:
+            from src.business.unit_economics import CostCalculator, VerticalStrategyMetrics
+            st.markdown("**Token Pricing Engine:** Groq `Llama-3.3-70B`")
+            st.caption("Input: $0.59/1M tokens | Output: $0.79/1M tokens")
+            st.markdown("**Compute Savings:** 100% free local HuggingFace embeddings")
+            roi = VerticalStrategyMetrics.calculate_roi_versus_human_care(0.0012, 15.0)
+            st.markdown(f"**Unit Economics (15-min Consult):**")
+            st.caption(f"- Human Consult: ${roi['human_care_equivalent_usd']:.2f}")
+            st.caption(f"- AI Recovery Consult: ${roi['ai_query_cost_usd']:.4f}")
+            st.caption(f"- Savings: **{roi['cost_reduction_multiplier']}**")
+            st.markdown("**Budget Guard:** Max $0.05/query | $1.00/session")
+        except Exception:
+            pass
+
+    st.divider()
     if st.button("Clear chat", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
@@ -167,6 +184,18 @@ for msg in st.session_state.messages:
                                 f"(confidence {meta.get('route_confidence', 0):.2f})")
                     for line in meta["execution_trace"]:
                         st.code(line, language=None)
+
+            try:
+                from src.multimodal.clip_search import MultimodalVisualSearch
+                visual_engine = MultimodalVisualSearch()
+                matched_imgs = visual_engine.search_visuals(msg.get("content", ""), top_k=2)
+                if matched_imgs:
+                    with st.expander("🖼️ Visual Guides & Diagrams"):
+                        for img in matched_imgs:
+                            st.caption(f"**{img['title']}**")
+                            st.image(img["file_path"], use_container_width=True)
+            except Exception:
+                pass
 
 question = st.chat_input("Ask about an injury, rehab, or getting back into training...")
 

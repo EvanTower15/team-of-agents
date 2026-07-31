@@ -1,19 +1,18 @@
 # Recovery Team 🩹
 
-A team of specialist RAG agents that helps someone recover from an injury and get back to
-activity. One chat interface; behind it, an LLM router and LangGraph orchestrator route each
-question to the right specialist — an **Orthopedic Surgeon agent** 🦴, a **Physical
-Therapist agent** 🩺, and a **Gym Trainer agent** 🏋️ — each answering only from its own
-curated knowledge base, chained together when a question needs more than one.
+A team of 4 specialist RAG agents that helps patients safely recover from an injury and return to full physical activity. One unified chat interface; behind it, an LLM router and LangGraph orchestrator route each question to the right specialist:
+- **Orthopedic Surgeon agent** 🦴
+- **Physical Therapist agent** 🩺
+- **Gym Trainer agent** 🏋️
+- **Sports Nutritionist agent** 🥗
 
-> **Start here → [PROJECT_PLAN.md](PROJECT_PLAN.md)** — the living working document with
-> current status, architecture, module contracts, and the phase plan. Read its §0 before
-> making changes.
+Each agent answers from its own domain-siloed knowledge base, augmented by **GraphRAG multi-hop clinical knowledge graphs**, **CLIP multimodal visual exercise matching**, **Security Guardrail scanners**, and **Business Unit Economics tracking**.
+
+> **Start here → [PROJECT_PLAN.md](PROJECT_PLAN.md)** — living status, architecture, module contracts, and phase plan.
 >
-> **Then read → [Capabilities_Overview.md](Capabilities_Overview.md)** — an in-depth
-> explanation of how every built part works and why (RAG core, agents, router,
-> orchestrator, safety design), written for teammates and for whoever builds the
-> presentation.
+> **Capabilities Overview → [Capabilities_Overview.md](Capabilities_Overview.md)** — in-depth technical explanation of GraphRAG, Multimodal Visual RAG, Security, and Unit Economics.
+
+---
 
 ## Setup
 
@@ -26,22 +25,26 @@ pip install -r requirements.txt
 cp .env.example .env   # then paste your free Groq key (console.groq.com)
 ```
 
-## Run
+## Ingest & Run
 
 ```bash
-python -m src.ingest --agent pt
-python -m src.ingest --agent trainer
-python -m src.ingest --agent surgeon
+# Rebuild all 4 specialist vector store indexes
+python -m src.ingest --agent all
+
+# Launch Streamlit web interface
 streamlit run app.py
 ```
 
-Opens a chat UI at `http://localhost:8501`. Each answer shows which specialist(s) were
-consulted (badges), their cited sources, any binding restrictions extracted from their
-draft, and — with "Show routing debug trace" toggled on in the sidebar — the exact router
-decision and execution trace. The sidebar also has a one-click rebuild button per knowledge
-base.
+## E2E CLI & Automated Test Suite
+
+```bash
+# Run a question end-to-end directly in your terminal
+python -m src.cli "How do I safely recover from an ACL knee surgery with PT exercises and post-op protein nutrition?"
+
+# Run automated unit, E2E, GraphRAG, and High-Risk Patient Safety test suite
+python -m pytest tests/ -v
+```
 
 ---
 
-*OPIM 5517 team project — Evan, Ben, James. Educational support tool; not a substitute for
-advice from a licensed clinician.*
+*OPIM 5517 team project — Evan, Ben, James. Educational support tool; not a substitute for advice from a licensed clinician.*
