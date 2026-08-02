@@ -5,6 +5,12 @@ Knowledge base: data/pt/ -> Chroma collection `pt_docs` (see data/SOURCES.md).
 Build it with:  python -m src.ingest --agent pt --fresh
 Test standalone: python -m src.agents.physical_therapist "My knee aches after squats"
 
+On the TEAM route the PT is consulted second, after the Orthopedic Surgeon: it
+receives the surgeon's draft and structured constraints as ``peer_context`` when
+that agent ran, and its own draft then binds the trainer and nutritionist
+downstream (decision D4 / D10 — the PT wins conflicts on everything except
+post-op, hardware, and weight-bearing precautions).
+
 The §7.1 grounding rule is enforced by the base class — the persona below only
 defines voice and scope. consult() never raises (see base.py).
 """

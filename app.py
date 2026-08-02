@@ -12,10 +12,11 @@ several conversations going -- each browser tab holds its own active session --
 and reload any of them from the sidebar later. Streamlit session_state stays the
 render cache; the database is the source of truth across reloads.
 
-Run:
+Run (one ingest per specialist — there is no --agent all):
     python -m src.ingest --agent pt
     python -m src.ingest --agent trainer
     python -m src.ingest --agent surgeon
+    python -m src.ingest --agent nutrition
     streamlit run app.py
 """
 
@@ -207,8 +208,9 @@ with st.sidebar:
     st.markdown("## 🩹 Recovery Team")
     st.caption(
         "A care team of specialist RAG agents -- Orthopedic Surgeon, Physical "
-        "Therapist, and Gym Trainer -- coordinated by an LLM router and "
-        "LangGraph orchestrator. Ask one question; the right specialist(s) answer."
+        "Therapist, Gym Trainer, and Sports Nutritionist -- coordinated by an LLM "
+        "router and LangGraph orchestrator. Ask one question; the right "
+        "specialist(s) answer."
     )
 
     st.divider()

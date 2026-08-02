@@ -1,12 +1,15 @@
 """
-src/orchestrator.py — the LangGraph team workflow (Phase 4, extended Phase 4b).
+src/orchestrator.py — the LangGraph team workflow (Phase 4, extended Phase 4b,
+fourth specialist added with the Sports Nutritionist).
 
-    START -> route_question ─┬─ PT_ONLY      -> consult_pt ────────────────────────┐
-                             ├─ TRAINER_ONLY -> consult_trainer ────────────────────┤
-                             ├─ SURGEON      -> consult_surgeon ────────────────────┤
-                             ├─ TEAM  -> [surgeon] -> [pt] -> [trainer] (whichever cues fired) ┤
-                             ├─ RED_FLAG     -> safety_response -> END              │
-                             └─ CLARIFY      -> ask_clarification -> END            v
+    START -> route_question ─┬─ PT_ONLY        -> consult_pt ──────────────────────┐
+                             ├─ TRAINER_ONLY   -> consult_trainer ─────────────────┤
+                             ├─ SURGEON        -> consult_surgeon ─────────────────┤
+                             ├─ NUTRITION_ONLY -> consult_nutritionist ────────────┤
+                             ├─ TEAM  -> [surgeon] -> [pt] -> [trainer] -> [nutritionist]
+                             │           (whichever cues fired) ───────────────────┤
+                             ├─ RED_FLAG       -> safety_response -> END           │
+                             └─ CLARIFY        -> ask_clarification -> END         v
                                                           synthesize_team_answer -> END
                        (agent error / no usable draft) -> fallback_handler -> END
 
@@ -15,10 +18,11 @@ Design notes (mirrors the opim-5517 reference workflow):
 * Every node captures its own errors into state instead of raising; one failing
   agent never crashes the graph — conditional edges route to fallback_handler.
 * On the TEAM route, specialists chain most-restrictive-first — surgeon, then
-  PT, then trainer — but only the ones whose cues actually fired in
-  ``route_scores`` are consulted (D4, generalized to three agents). Each
+  PT, then trainer, then nutritionist — but only the ones whose buckets actually
+  fired in ``route_scores`` are consulted (D4, generalized to four agents). Each
   downstream specialist receives the upstream drafts, plus their *structured*
-  constraints (src/agents/constraints.py), as ``peer_context``.
+  constraints (src/agents/constraints.py), as ``peer_context``; the nutritionist
+  sits last precisely because it must respect every clinical restriction above it.
 * RED_FLAG never touches an LLM: canned response, appended in code (D5, §7.3).
 * The standing disclaimer (§7.2) is a code constant appended by the terminal
   nodes — never left to the LLM.

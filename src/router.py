@@ -1,30 +1,48 @@
 """
 src/router.py — route classifier for the recovery team (Phase 4, redesigned Phase 4c).
 
-Decides which specialist(s) a question goes to:
+Decides which specialist(s) a question goes to — one label out of seven:
 
-    PT_ONLY       -> physical therapist (pain, rehab, mobility)
-    TRAINER_ONLY  -> gym trainer (programming, form, getting active)
-    SURGEON       -> orthopedic surgeon (post-op protocols, timelines, hardware)
-    TEAM          -> more than one specialist, chained most-restrictive-first
-    RED_FLAG      -> deterministic safety response, NO LLM ever (decision D5)
-    CLARIFY       -> too vague to route safely; ask one follow-up
+    PT_ONLY         -> physical therapist (pain, rehab, mobility)
+    TRAINER_ONLY    -> gym trainer (programming, form, getting active)
+    SURGEON         -> orthopedic surgeon (post-op protocols, timelines, hardware)
+    NUTRITION_ONLY  -> recovery nutritionist (protein targets, healing nutrients,
+                       anti-inflammatory diet, post-op GI support)
+    TEAM            -> more than one specialist, chained most-restrictive-first
+    RED_FLAG        -> deterministic safety response, NO LLM ever (decision D5)
+    CLARIFY         -> too vague to route safely; ask one follow-up
+
+Alongside the label, every decision carries ``scores`` — a
+``{"pt", "trainer", "surgeon", "nutrition"}`` dict of 0/1 flags naming which
+specialists apply. That is what the orchestrator's TEAM chain reads to decide
+who to consult, so adding the nutritionist needed no orchestrator API change.
 
 Strategy (Phase 4c, D11 — supersedes the Phase 4/4b weighted-regex scorer):
     1. RED_FLAG regexes are checked FIRST and always win — health safety must
        not depend on LLM behavior. This is the one place regex stays load-bearing.
-    2. Everything else goes straight to the Groq/Llama classifier, which also
-       names which specialist(s) apply (so the orchestrator's TEAM chain still
-       knows who to consult, same as the old ``RouteDecision.scores``).
-    3. If the LLM is unsure (confidence below CLARIFY_THRESHOLD) or unavailable
-       (no key, network error), the route collapses to CLARIFY rather than
-       guessing — never crashes, per the codebase's "never raise" convention.
+    2. Everything else goes to the Groq/Llama classifier, which returns both the
+       label and the specialist flags in one call.
+    3. If the LLM is unsure (confidence below CLARIFY_THRESHOLD), answers
+       CLARIFY, or is unavailable (no key, network error), routing drops to
+       ``keyword_route_fallback()`` — a deterministic keyword pass over
+       HIGH_RISK_PATTERNS then SPECIALIST_KEYWORDS (two or more specialists
+       matched => TEAM), reported as method "rules" at confidence 0.85.
+    4. Only if that finds nothing does the route collapse to CLARIFY. Never
+       crashes, per the codebase's "never raise" convention.
+
+Step 3 was added after Phase 4c: the LLM-only design collapsed explicit
+questions to CLARIFY too eagerly (and, with no key set, collapsed *every*
+non-RED_FLAG question), so a small keyword net now sits under the classifier
+rather than in front of it. Note what this means operationally — without
+GROQ_API_KEY the router still routes, deterministically, instead of asking
+everyone to rephrase.
 
 Trade-off, on purpose: every non-RED_FLAG question now costs one Groq call
 instead of being resolved for free by keyword weights. Hand-tuned regex cue
 lists were proving brittle (subtle misses like "stitches come out" not
 matching "stitches out") and needed constant patching as the specialist roster
-grew; a classifier generalizes without new patterns per phrasing.
+grew; a classifier generalizes without new patterns per phrasing — the keyword
+list survives only as a safety net, not as the primary decision-maker.
 
 Run standalone:
     python -m src.router "Can I do cardio while rehabbing an ankle sprain?"

@@ -1,8 +1,18 @@
 """
-src/agents/nutritionist.py — the Nutritionist Agent (4th Specialist 🥗).
+src/agents/nutritionist.py — the Sports Nutritionist specialist (4th agent 🥗).
 
-Follows SpecialistAgent contract (base.py) and never raises.
-Collection: "nutrition_kb" (populated from data/nutrition/ by python -m src.ingest --agent nutrition).
+Knowledge base: data/nutrition/ -> Chroma collection `nutrition_kb` (NIH Office of
+Dietary Supplements + MedlinePlus fact sheets; see data/SOURCES.md).
+Build it with:  python -m src.ingest --agent nutrition --fresh
+Test standalone: python -m src.agents.nutritionist "How much protein after ACL surgery?"
+
+On the TEAM route the nutritionist consults **last** — after the surgeon, PT, and
+trainer — so every clinical restriction upstream reaches it as ``peer_context``
+(decision D4). Nothing is chained downstream of it; its draft goes straight to
+synthesis.
+
+Follows the SpecialistAgent contract (base.py §5.2): the §7.1 grounding rule is
+enforced by the base class, and consult() never raises.
 """
 
 from __future__ import annotations

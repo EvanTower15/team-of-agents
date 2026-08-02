@@ -30,8 +30,11 @@ cp .env.example .env   # then paste your free Groq key (console.groq.com)
 ## Ingest & Run
 
 ```bash
-# Rebuild all 4 specialist vector store indexes
-python -m src.ingest --agent all
+# Build the 4 specialist vector store indexes (one agent per invocation)
+python -m src.ingest --agent pt
+python -m src.ingest --agent trainer
+python -m src.ingest --agent surgeon
+python -m src.ingest --agent nutrition
 
 # Launch Streamlit web interface
 streamlit run app.py

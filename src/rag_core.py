@@ -3,7 +3,8 @@ src/rag_core.py — shared RAG plumbing for every specialist agent.
 
 One Chroma persist directory, one collection per agent (PROJECT_PLAN.md
 decision D3): the PT agent reads only `pt_docs`, the trainer only
-`trainer_docs`. Knowledge siloing per specialist is the core product thesis —
+`trainer_docs`, the surgeon only `surgeon_docs`, the nutritionist only
+`nutrition_kb`. Knowledge siloing per specialist is the core product thesis —
 an agent cannot leak into another's expertise.
 
 Flow (ported from the opim-5517 reference architecture, simplified):
