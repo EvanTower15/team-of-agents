@@ -377,12 +377,16 @@ def ask_clarification(state: TeamState) -> dict:
 
 
 def fallback_handler(state: TeamState) -> dict:
+    # Every specialist that can run must be listed here, or its failure reason is
+    # silently dropped and the user gets "no usable evidence" instead of the real
+    # cause (which is often an unbuilt knowledge base, with the fix in the text).
     reasons = [
         r["error"]
         for r in (
             state.get("surgeon_result"),
             state.get("pt_result"),
             state.get("trainer_result"),
+            state.get("nutrition_result"),
         )
         if r and r.get("error")
     ]
@@ -393,6 +397,7 @@ def fallback_handler(state: TeamState) -> dict:
         "  python -m src.ingest --agent pt\n"
         "  python -m src.ingest --agent trainer\n"
         "  python -m src.ingest --agent surgeon\n"
+        "  python -m src.ingest --agent nutrition\n"
         "Otherwise, try rephrasing the question."
     )
     return {
