@@ -4,6 +4,9 @@
 # Generated vector store
 chroma_db/
 
+# Generated CLIP image-embedding index (rebuilt automatically from data/*/visuals/)
+clip_index.npz
+
 # Python
 __pycache__/
 *.pyc

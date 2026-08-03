@@ -500,30 +500,89 @@ regex-era numbers for historical comparison.
 - **Domain:** Post-operative recovery nutrition, protein synthesis targets (1.2–2.0g/kg), anti-inflammatory micronutrients (Zinc, Vitamin C, Omega-3), and tendon/ligament collagen healing protocols.
 - **Knowledge Base:** Siloed under `data/nutrition/` and embedded into `chroma_db/nutritionist_docs`.
 
-### 12.2 GraphRAG Multi-Hop Knowledge Graph Engine
-- **Technology:** Integrated Kùzu Graph Database (`src/graph_rag/kuzu_graph.py`).
-- **Nodes & Edges:** Explicit medical entities (`Procedure`, `Nutrient`, `Exercise`, `Contraindication`, `Complication`) connected via semantic relationships (`REQUIRES`, `ACCELERATES`, `CONTRAINDICATES`).
-- **Multi-Hop Traversal:** Enables non-trivial multi-step clinical reasoning (e.g. `Procedure -> Contraindication -> Alternative Exercise -> Healing Nutrient`).
+> **Accuracy note (2026-08-02):** several claims in this section were found overstated
+> during an audit and have been corrected below to describe what the code actually does.
+> The originals are preserved in git history. See PROJECT_PLAN.md's audit results block.
 
-### 12.3 Multimodal Visual Exercise RAG Search Engine
-- **Technology:** HuggingFace `CLIP` (`openai/clip-vit-base-patch32`) image-text embedding model.
-- **Media Ingestion:** Scraped visual exercise diagrams and extracted inline PDF visual figures across all 4 specialist knowledge bases.
-- **Semantic Visual Matching:** Computes cross-modal cosine similarity between patient rehab queries and visual exercise diagrams.
+### 12.2 Curated clinical reference lookup (`src/graph_rag/kuzu_graph.py`)
+- **What it actually is:** a hand-curated in-memory lookup over **4 surgeries** (ACL
+  reconstruction, meniscus repair, rotator cuff repair, total knee arthroplasty), mapping
+  each to its contraindicated movements, rehab exercises, and healing nutrients.
+- **The Kùzu graph database is not active.** `kuzu` is not in `requirements.txt`, so the
+  DB never initializes and every query reads the in-memory dict. Real Cypher
+  schema/query code exists in the file but is unreachable as shipped — it would need
+  `kuzu` added and a caller wired to `query_contraindications()`.
+- **Fixed in the audit:** it previously defaulted to "ACL Reconstruction" whenever nothing
+  matched, silently stapling ACL contraindications onto *every* answer regardless of
+  relevance. It now returns no match instead, per the §7.1 grounding rule.
 
-### 12.4 Security Scanners & Guardrail System
-- **Location:** `src/security/guardrails.py`
-- **Prompt Injection Scanner:** Intercepts system prompt disclosure requests, DAN jailbreaks, instruction overrides, and SQL injection attempts (`DROP TABLE`, `UNION SELECT`).
-- **PII Redaction Engine:** Redacts Social Security Numbers (`[SSN_REDACTED]`), email addresses, and phone numbers before context reaches LLMs.
+### 12.3 Visual search over the diagram corpus (`src/multimodal/clip_search.py`)
+- **Technology:** real CLIP image embeddings via `sentence-transformers` (`clip-ViT-B-32`),
+  computed once over 277 images and cached to `clip_index.npz` (gitignored, auto-rebuilds
+  when the image set changes).
+- **Why it matters here:** ~94% of this corpus was auto-extracted from PDF pages with
+  opaque filenames like `pdf_hhs_physical_activity_guidelin_p62_img1.jpg`. The previous
+  implementation matched on filenames only and never opened an image, so those were
+  unfindable by any query. Verified: that exact file is a photo of a bodyweight squat and
+  now ranks #1 for "squat exercise form".
+- **Hybrid scoring:** CLIP similarity plus a small filename-keyword bonus. CLIP is trained
+  on natural photographs and measurably under-ranks dense text-heavy instructional
+  diagrams (a labeled squat-form infographic scored below rank 20 for that same query);
+  the bonus recovers those without displacing genuine visual matches.
+- **Honest limits:** CLIP is a general-purpose model, not medically trained — expect solid
+  results on "person doing a squat" or "food plate diagram", weaker discrimination between
+  e.g. a meniscus-tear and an ACL diagram. A similarity floor (0.20) prevents confidently
+  showing an unrelated image, since CLIP always returns *some* nearest neighbour.
 
-### 12.5 Business Unit Economics & AI Budget Overrun Controls
-- **Location:** `src/business/unit_economics.py`
-- **Groq Token Cost Calculator:** Real-time tracking of input ($0.59/1M) and output ($0.79/1M) Groq `Llama-3.3-70B` token costs.
-- **Compute Savings:** Tracks 100% free local HuggingFace embedding compute savings.
-- **Budget Overrun Guard:** Enforces hard limits ($0.05 max per query, $1.00 max per session) to prevent runaway loops.
-- **Vertical AI ROI:** Demonstrates **100x+ cost savings** compared to human clinical consultation hours ($150–$350/hr).
+### 12.4 Patient photo upload (`src/vision.py`)
+- **What it does:** a user can attach a photo (swelling, an incision, exercise form) in the
+  chat. It is described once by a vision model, and that description is folded into the
+  question before the normal pipeline runs.
+- **Provider:** Google Gemini free tier (`gemini-flash-latest`). This is the **only** part
+  of the system not on Groq — a live check of the Groq account found no vision-capable
+  model available at all. `GOOGLE_API_KEY` is optional; text questions work without it.
+- **Why describe-then-route rather than passing pixels to the specialists:** every
+  specialist answer is grounded in its own retrieved corpus (§7.1); handing four agents raw
+  pixels would bypass that. This keeps routing, grounding, and synthesis unchanged.
+- **Safety:** the vision prompt is constrained to neutral visual description only — no
+  diagnosis, no severity judgement, no advice. Verified live that a photo described as
+  showing "a surgical incision with redness and yellow drainage" trips the deterministic
+  RED_FLAG gate and short-circuits, even when the typed question was innocuous.
+- **Not stored:** uploaded bytes are used for the one API call and discarded; only the text
+  description persists in session chat history.
 
-### 12.6 High-Risk Patient Safety & LLM-as-a-Judge Evaluator
+### 12.5 Security scanners & guardrails (`src/security/guardrails.py`)
+- **Prompt injection scanner:** regex patterns intercepting system-prompt disclosure
+  requests, DAN jailbreaks, instruction overrides, and SQL-injection strings.
+- **PII redaction:** redacts SSNs, email addresses, and phone numbers before text reaches
+  an LLM.
+- **Fixed in the audit:** this module was previously only called from the unused
+  `src/cli.py` — never from `app.py` or the orchestrator, so it protected nothing a real
+  user touched. It is now wired into `answer_question()` on both input and output, with a
+  `BLOCKED` route visible in the execution trace.
+- **Honest limit:** it is a literal regex blocklist, bypassable by rephrasing. Groq offers
+  `meta-llama/llama-prompt-guard-2-86m`, a purpose-built injection classifier, as a
+  stronger drop-in upgrade — noted, not yet implemented.
+
+### 12.6 Business unit economics (`src/business/unit_economics.py`)
+- **Cost estimate:** input ($0.59/1M) and output ($0.79/1M) Groq pricing applied to a token
+  count **estimated** as `len(text)/4` — a heuristic, *not* real usage metadata from the
+  API response. Labeled as an approximation in the UI.
+- **Session tracking:** the sidebar computes real per-exchange cost from the actual chat
+  history and shows an accumulated session total with a budget warning.
+- **Fixed in the audit:** the sidebar previously displayed a **hardcoded `$0.0012`** and
+  never touched a real query. The budget guard still does not *block* requests when
+  exceeded — it warns. Stated plainly rather than described as enforcement.
+
+### 12.7 High-Risk Patient Safety & LLM-as-a-Judge Evaluator
 - **Location:** `tests/test_high_risk_scenarios.py` & `src/eval/eval_suite.py`
 - **Stress-Test Benchmark:** Tests uninsured / self-treating patient scenarios (premature 225lb heavy gym squatting, skipping PT visits, forcing shoulder ROM, extreme 500 cal/day starvation diets, infection red-flags).
 - **LLM-as-a-Judge Evaluation:** Uses Groq `Llama-3.3-70B` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
+- **Fixed in the audit — read before citing any pass rate:** the judge previously returned
+  a **hardcoded perfect score with `PASS: True` on any exception** (missing key, rate
+  limit, bad JSON), and the backup string assertions matched substrings so common
+  (`"rate"` matches "mode**rate**"; `"sorry"` matches the generic failure message) that
+  the suite would have passed on a completely broken system. The earlier "100% pass rate"
+  claim was therefore true by construction, not evidence of safety. Judge failures now
+  score 0 with `verdict: "ERROR"`, and assertions check real safety language.
 

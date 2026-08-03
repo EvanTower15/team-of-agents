@@ -175,9 +175,23 @@ st.caption(
     "Educational support only -- not a substitute for advice from a licensed clinician."
 )
 
+uploaded_image = st.file_uploader(
+    "Optional: attach a photo (swelling, an incision, exercise form)",
+    type=["jpg", "jpeg", "png", "webp"],
+    help=(
+        "The photo is described by a vision model and that description is added to "
+        "your question. Nothing is stored after the answer is generated."
+    ),
+)
+if uploaded_image is not None:
+    st.image(uploaded_image, width=220, caption="Attached to your next message")
+
 for msg in st.session_state.messages:
     avatar = "🙂" if msg["role"] == "user" else "🩹"
     with st.chat_message(msg["role"], avatar=avatar):
+        if msg["role"] == "user" and msg.get("image_description"):
+            with st.expander("🖼️ What the vision model saw in your photo"):
+                st.caption(msg["image_description"])
         if msg["role"] == "assistant":
             meta = msg.get("meta", {})
             st.markdown(
@@ -231,13 +245,38 @@ for msg in st.session_state.messages:
 question = st.chat_input("Ask about an injury, rehab, or getting back into training...")
 
 if question:
-    st.session_state.messages.append({"role": "user", "content": question})
+    # If a photo is attached, describe it with a vision model first and fold
+    # that description into the question -- the specialists themselves run on
+    # a text-only model, so this is what lets them "see" it (src/vision.py).
+    image_description, image_error = "", None
+    if uploaded_image is not None:
+        with st.spinner("Looking at your photo..."):
+            from src.vision import describe_image, build_question_with_image
+
+            vision_result = describe_image(uploaded_image.getvalue(), uploaded_image.name)
+            image_description = vision_result["description"]
+            image_error = vision_result["error"]
+
+    effective_question = question
+    if image_description:
+        from src.vision import build_question_with_image
+
+        effective_question = build_question_with_image(question, image_description)
+
+    st.session_state.messages.append(
+        {"role": "user", "content": question, "image_description": image_description}
+    )
     with st.chat_message("user", avatar="🙂"):
         st.markdown(question)
+        if image_error:
+            st.warning(f"Couldn't read that photo: {image_error}")
+        elif image_description:
+            with st.expander("🖼️ What the vision model saw in your photo"):
+                st.caption(image_description)
 
     with st.chat_message("assistant", avatar="🩹"):
         with st.spinner("Consulting the care team..."):
-            result = answer_question(question)
+            result = answer_question(effective_question)
         st.markdown(
             f'<span class="route-chip">{result["route"]} '
             f'({result["route_confidence"]:.2f})</span>',

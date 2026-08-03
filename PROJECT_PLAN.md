@@ -5,15 +5,63 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: AUDIT + INTEGRITY FIX PASS COMPLETE (2026-08-02)** — the 2026-07-30 "Full
-> Production Extension" claimed a lot; an audit found most of the new "advanced" features
-> were decorative/mislabeled and one safety-test claim was fabricated by construction. All
-> found issues are now fixed (see the results block immediately below). The 4-agent MAS
-> (Surgeon/PT/Trainer/Nutritionist) itself is sound — this pass was about making the rest
-> of the claims true, not rebuilding the core product.
+> **Status: REAL VISION SUPPORT ADDED (2026-08-02)** — the two previously-fake "multimodal"
+> claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
+> users can upload a photo that a real vision model describes. Built on top of the same-day
+> audit + integrity fix pass (block below), which made the rest of the 2026-07-30 claims
+> true. **Still open and time-critical: the `llama-3.3-70b-versatile` deprecation on
+> August 16, 2026** — not yet migrated.
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Real vision support results (2026-08-02)** — Ben. Follow-up to the audit pass below,
+> which found that both "multimodal" features were mislabeled. Both are now genuinely real:
+>
+> 1. **`src/multimodal/clip_search.py` rewritten to use actual CLIP embeddings**
+>    (`sentence-transformers` `clip-ViT-B-32`), replacing filename-substring matching that
+>    never opened an image. Index is computed once over 277 images and cached to
+>    `clip_index.npz` (gitignored, auto-rebuilds via a fingerprint of the image set).
+>    **Verified live:** query "squat exercise form" now returns
+>    `pdf_hhs_physical_activity_guidelin_p62_img1.jpg` as the #1 hit — I opened that file
+>    and it is literally a photo of a man doing a bodyweight squat, with a filename
+>    containing zero descriptive words. The old code could not have found it under any
+>    query; ~94% of this corpus has that kind of opaque PDF-extracted name.
+>    **Two real bugs found and fixed during testing, not after:** (a) the cache-hit path
+>    reused the full scanned catalog while the cached embeddings excluded unreadable
+>    images, so every result after the first skipped file was **paired with the wrong
+>    filename** — caught because two identical queries returned different files at the
+>    same score; the cache now stores the embedded paths and realigns. (b) CLIP measurably
+>    under-ranks text-heavy diagrams — a labeled squat-form infographic scored below rank
+>    20 for "squat exercise form" — so scoring is now hybrid (D20), which moved it to #2
+>    while leaving the photo at #1.
+> 2. **`src/vision.py` (new) — real user photo upload**, wired into `app.py` as a file
+>    uploader above the chat. **Provider had to change (D18):** a live query of the Groq
+>    account's `/v1/models` returned **no vision-capable model at all** — Llama 4
+>    Scout/Maverick are simply not on this key, and every available text model rejects
+>    image content (verified by sending a real image to each). An earlier claim in this
+>    conversation that Scout was available came from general web docs, not the actual
+>    account, and was wrong. Photo calls now go to Google Gemini's free tier
+>    (`gemini-flash-latest` alias — D21, because `gemini-2.5-flash` is already retired for
+>    new keys); everything else stays on Groq. `GOOGLE_API_KEY` is optional.
+> 3. **Architecture deliberately unchanged (D19):** the photo is described once, up front,
+>    and that text is folded into the question — the router, four specialists, and
+>    synthesis are untouched. **Safety verified live:** a photo described as showing "a
+>    surgical incision with redness and yellow drainage" trips RED_FLAG's deterministic
+>    regex and short-circuits, *even when the typed question was innocuous* ("What
+>    exercises can I do?"). The vision prompt itself is constrained to neutral visual
+>    description only — no diagnosis, no severity, no advice — confirmed in real output.
+>
+> Verification: full syntax check clean; `pytest tests/` **38 passed**, 4 failed — all 4
+> failures are the Groq free-tier daily token cap (99,646/100,000 used from this session's
+> live testing), confirmed by reading the actual `RateLimitError` in the fallback output,
+> not code regressions. `AppTest` confirms the app renders with the uploader and chat input
+> and zero exceptions.
+>
+> **Audit + integrity fix pass (2026-08-02, same day, immediately prior)** — the 2026-07-30
+> "Full Production Extension" claimed a lot; an audit found most of the new "advanced"
+> features were decorative/mislabeled and one safety-test claim was fabricated by
+> construction. All found issues fixed — see the results block below.
 >
 > **Audit + integrity fix pass results (2026-08-02)** — Ben (with AI pairing). The
 > 2026-07-30 block below claimed a complete "enterprise-grade" extension. An audit (4
@@ -905,6 +953,10 @@ Add rows as edge cases emerge (log the addition in §10).
 | D15 | 2026-08-02 | `keyword_route_fallback` (added by James the same day as the nutrition merge) now only fires when the LLM's own confidence is below threshold, never to override a confident CLARIFY | It was re-resolving confidently-CLARIFY questions like "What's the best gym?" to a wrong single-specialist guess off one loose keyword match ("gym"), undoing a routing-accuracy gap that had already been found and fixed once (see the Phase 4c results block). A confident CLARIFY means the LLM already looked at the whole question and judged it too vague — a single keyword shouldn't override that |
 | D16 | 2026-08-02 | Security guardrails, unit-economics cost tracking, and honest GraphRAG/CLIP labeling are all now wired into the real product path (`orchestrator.answer_question()` / `app.py`), not left in the unused `src/cli.py` only | Code that only runs from a side script nobody actually uses provides zero real protection/value while still being described as a shipped feature. If a capability is claimed as part of the product, it needs to run on the path real users (and graders) actually exercise |
 | D17 | 2026-08-02 | The WAF-bypassing scrapers' output (`data/pt/unstructured/*.txt`, from Physiopedia via `cloudscraper`) is left in place, unattributed, pending an explicit team decision — not removed unilaterally | Unlike the two clearly-irrelevant PDFs removed in the same pass (a conference sponsorship prospectus, an org strategic plan — objectively wrong content regardless of source ethics), whether to keep bot-protection-bypassing scraped content is a licensing/ethics call the whole team should make knowingly, not something to decide by fiat while fixing unrelated code quality issues |
+| D18 | 2026-08-02 | Photo-upload vision calls go to **Google Gemini**, not Groq — the only place this project uses a second LLM provider | Groq was checked first to keep the stack single-provider (D1's simplification goal). A live query of the account's `/v1/models` returned **no vision-capable model at all** — Llama 4 Scout/Maverick are not on this key, and every available text model rejects image content outright (verified by sending a real image to each). Google AI Studio's free tier supports vision, needs no credit card, and is used for exactly one call per uploaded photo; the router, all four specialists, and synthesis stay entirely on Groq. Note this does NOT re-litigate D2 (which rejected Gemini *embeddings* over rate limits on bulk 100-chunk ingestion) — one image description per upload is a completely different usage pattern. `GOOGLE_API_KEY` is optional: text-only questions work without it |
+| D19 | 2026-08-02 | Uploaded images are converted to a **text description** up front, then fed through the existing pipeline — rather than passing pixels to the specialists | Every specialist answer is grounded in its own retrieved corpus (§7.1); handing four agents raw pixels would bypass that grounding entirely. Describing once, up front, keeps routing/grounding/synthesis architecturally unchanged — the photo just becomes richer context on the question. It also preserves the D5 safety gate: verified live that a photo described as showing "a surgical incision with redness and yellow drainage" trips RED_FLAG's deterministic regex and short-circuits, even when the user's typed question was innocuous ("What exercises can I do?") |
+| D20 | 2026-08-02 | Visual search is **hybrid**: CLIP image-embedding similarity as the primary signal, plus a small filename-keyword bonus | Pure CLIP unlocked ~94% of the image corpus that filename matching could never reach (most images are PDF-extracted with opaque names like `p62_img1.jpg`; verified that a squat *photo* with that exact filename now ranks #1 for "squat exercise form"). But CLIP is trained on natural photographs and measurably under-ranks dense text-heavy instructional diagrams — a labeled "Squats for strengthening your leg muscles" infographic scored below rank 20 for the same query, a case the old filename search *would* have caught. The bonus is capped well below the typical CLIP score spread, so it recovers those diagrams (that one moved to rank #2) without displacing genuine visual matches |
+| D21 | 2026-08-02 | Gemini model pinned to the `gemini-flash-latest` **alias**, not a specific version | Google retires specific Gemini versions for new users aggressively — verified live that `gemini-2.5-flash` already returns "no longer available to new users" on a key created the same day. A pinned version would have shipped broken. The alias tracks whatever current flash model the account can actually reach. (Contrast with Groq, where the reverse discipline applies — see the `llama-3.3-70b-versatile` Aug 16 deprecation note in the audit results block) |
 
 ---
 
