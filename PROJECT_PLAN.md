@@ -9,9 +9,45 @@
 > claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
 > users can upload a photo that a real vision model describes. Built on top of the same-day
 > audit + integrity fix pass (block below), which made the rest of the 2026-07-30 claims
-> true. **Still open and time-critical: the `llama-3.3-70b-versatile` deprecation on
-> August 16, 2026** — not yet migrated.
->
+> true.
+
+---
+
+## ⚠️ ACTION REQUIRED BEFORE 2026-08-16 — the LLM this project runs on is being retired
+
+**Groq is shutting down `llama-3.3-70b-versatile` on August 16, 2026.** That is the exact
+model string the router, all four specialist agents, and synthesis every one call. When it
+is retired, **the entire app stops working** — every Groq call returns an error and the
+system degrades to fallback/CLARIFY responses for every question.
+
+This is a hard external deadline, not a stylistic cleanup. Deliberately deferred on
+2026-08-02 to land the audit-integrity and vision work first (decision D22); it has **not**
+been started.
+
+**What to change (2 lines):**
+
+| File | Line | Current |
+|---|---|---|
+| `src/rag_core.py` | `GROQ_MODEL` | `"llama-3.3-70b-versatile"` |
+| `src/router.py` | `MODEL` | `"llama-3.3-70b-versatile"` |
+
+**Replacement candidates — both confirmed live on this project's Groq key (2026-08-02):**
+- `openai/gpt-oss-120b` — Groq's own recommended replacement; free-tier limits 30 RPM /
+  8K TPM / 1K RPD (vs. 12K TPM today, so slightly *tighter* per-minute headroom)
+- `qwen/qwen3.6-27b` — same free-tier limits
+
+**Do not skip verification.** The router prompt is tuned with few-shot examples and an
+explicit surgeon-detection rule, and its accuracy is model-dependent — two separate
+routing regressions have already been caught by re-running the battery (see the Phase 4c
+and audit results blocks). After swapping the model string, re-run the full §9 battery
+live and confirm it still passes 16/16 before considering the migration done. Budget a
+real chunk of time for this, not a two-line commit.
+
+**Watch the free-tier daily token cap while testing:** this session exhausted the 100K
+TPD limit purely on live verification runs, which surfaces as `RateLimitError` mid-battery.
+
+---
+
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
 >
@@ -402,17 +438,24 @@
 
 **For every teammate and every AI agent working in this repo:**
 
-1. **Before starting work:** read the Status block above, find your phase in [§8](#8-phase-plan),
+1. **Before starting work:** read the Status block above — including the
+   **⚠️ ACTION REQUIRED BEFORE 2026-08-16** callout, since the model this whole project
+   runs on is being retired on that date — then find your phase in [§8](#8-phase-plan)
    and confirm its dependencies are marked complete.
    > ⚠️ **Prerequisite for Ben & James (or any agent working on their behalf):** you need
    > your own free Groq API key before any agent code will actually run — the router, all
-   > three specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`. Sign up
+   > four specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`
+   > (**being retired 2026-08-16 — see the callout above**). Sign up
    > at https://console.groq.com, create a key, copy `.env.example` → `.env`, and paste it in
    > as `GROQ_API_KEY=`. `.env` is gitignored — never commit it. **As of Phase 4c this is a
    > harder blocker than before:** the router itself is now LLM-primary, so without a key
    > `classify()` returns CLARIFY for every question (verified) — there's no regex fallback
    > left except RED_FLAG. Delete this notice once both of you have confirmed your keys work
    > (e.g. a phase-results block says so).
+   >
+   > **Optional second key:** `GOOGLE_API_KEY` (free, https://aistudio.google.com/apikey)
+   > enables the photo-upload feature only — Groq has no vision-capable model on this
+   > account (D18). Text questions work fine without it.
 2. **While working:** follow the interface contracts in [§5](#5-module-contracts--work-in-parallel-safely)
    exactly. They exist so phases can proceed in parallel without merge pain. If you must
    change a contract, update this file in the same PR and flag it in the PR description.
@@ -957,6 +1000,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D19 | 2026-08-02 | Uploaded images are converted to a **text description** up front, then fed through the existing pipeline — rather than passing pixels to the specialists | Every specialist answer is grounded in its own retrieved corpus (§7.1); handing four agents raw pixels would bypass that grounding entirely. Describing once, up front, keeps routing/grounding/synthesis architecturally unchanged — the photo just becomes richer context on the question. It also preserves the D5 safety gate: verified live that a photo described as showing "a surgical incision with redness and yellow drainage" trips RED_FLAG's deterministic regex and short-circuits, even when the user's typed question was innocuous ("What exercises can I do?") |
 | D20 | 2026-08-02 | Visual search is **hybrid**: CLIP image-embedding similarity as the primary signal, plus a small filename-keyword bonus | Pure CLIP unlocked ~94% of the image corpus that filename matching could never reach (most images are PDF-extracted with opaque names like `p62_img1.jpg`; verified that a squat *photo* with that exact filename now ranks #1 for "squat exercise form"). But CLIP is trained on natural photographs and measurably under-ranks dense text-heavy instructional diagrams — a labeled "Squats for strengthening your leg muscles" infographic scored below rank 20 for the same query, a case the old filename search *would* have caught. The bonus is capped well below the typical CLIP score spread, so it recovers those diagrams (that one moved to rank #2) without displacing genuine visual matches |
 | D21 | 2026-08-02 | Gemini model pinned to the `gemini-flash-latest` **alias**, not a specific version | Google retires specific Gemini versions for new users aggressively — verified live that `gemini-2.5-flash` already returns "no longer available to new users" on a key created the same day. A pinned version would have shipped broken. The alias tracks whatever current flash model the account can actually reach. (Contrast with Groq, where the reverse discipline applies — see the `llama-3.3-70b-versatile` Aug 16 deprecation note in the audit results block) |
+| D22 | 2026-08-02 | The `llama-3.3-70b-versatile` → replacement-model migration is **deliberately deferred**, not overlooked — flagged prominently at the top of this document instead | Ben's call: land the audit-integrity fixes and the vision work first while that context was fresh, rather than interleave a model swap that needs its own full battery re-verification. The risk of deferring is real and bounded — a hard external cutoff on **2026-08-16**, after which the app stops working entirely — so it is recorded as an explicit deadline callout above §0 rather than left as a to-do buried in a results block. Whoever picks it up should treat it as a verification task, not a two-line edit: router accuracy is model-dependent and two routing regressions have already been caught only by re-running the §9 battery |
 
 ---
 
