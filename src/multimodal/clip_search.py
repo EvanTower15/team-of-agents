@@ -1,11 +1,15 @@
 """
-src/multimodal/clip_search.py — Multimodal Visual Search Engine.
+src/multimodal/clip_search.py — filename-tag keyword search over the visuals
+folders for all 4 specialists (data/{surgeon,pt,trainer,nutrition}/visuals/).
 
-Scans, indexes, and retrieves scraped educational diagrams across all 4 specialists:
-- Surgeon (data/surgeon/visuals/)
-- Physical Therapist (data/pt/visuals/)
-- Gym Trainer (data/trainer/visuals/)
-- Nutritionist (data/nutrition/visuals/)
+Honest status as shipped: despite the filename, this does NOT use CLIP or any
+image embedding model -- no torch/clip/pillow is in requirements.txt, and no
+image content is ever loaded or encoded. `search_visuals()` is a substring
+match between the query and tags derived from each image's *filename*
+(`img_path.stem`). It reliably finds images whose filename resembles the
+query, and nothing more -- it cannot match on visual content a filename
+doesn't describe. If real CLIP-based search is wanted, this is the class to
+replace `_scan_and_index`/`search_visuals` in.
 """
 
 from __future__ import annotations
@@ -27,7 +31,8 @@ SPECIALIST_VISUAL_DIRS = {
 
 
 class MultimodalVisualSearch:
-    """Multimodal search engine over scraped educational diagrams."""
+    """Filename-tag keyword search over scraped educational diagrams (see
+    module docstring: this is not embedding-based/CLIP search)."""
 
     def __init__(self) -> None:
         self.catalog = []

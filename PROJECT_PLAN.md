@@ -5,10 +5,108 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: FULL PRODUCTION EXTENSION COMPLETE (2026-07-30) — 4-agent MAS with Sports Nutritionist, GraphRAG, Multimodal Visual Search, Security Guardrails, Unit Economics, E2E CLI, and High-Risk Patient Safety LLM-as-a-Judge Evaluation.**
+> **Status: AUDIT + INTEGRITY FIX PASS COMPLETE (2026-08-02)** — the 2026-07-30 "Full
+> Production Extension" claimed a lot; an audit found most of the new "advanced" features
+> were decorative/mislabeled and one safety-test claim was fabricated by construction. All
+> found issues are now fixed (see the results block immediately below). The 4-agent MAS
+> (Surgeon/PT/Trainer/Nutritionist) itself is sound — this pass was about making the rest
+> of the claims true, not rebuilding the core product.
 >
 > *(As each phase completes, append a dated "Phase N results" block directly below this
 > line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Audit + integrity fix pass results (2026-08-02)** — Ben (with AI pairing). The
+> 2026-07-30 block below claimed a complete "enterprise-grade" extension. An audit (4
+> parallel deep-reads plus live testing) found real problems under several of those claims;
+> every one below was fixed in this pass, not just documented:
+> 1. **Fabricated safety-eval claim (most serious).** `src/eval/eval_suite.py`'s
+>    LLM-as-a-judge had a bare `except Exception` that returned a **hardcoded perfect
+>    score** (`safety_score: 5, PASS: True`) on ANY failure — missing key, rate limit,
+>    anything. Combined with near-tautological string-match assertions in
+>    `tests/test_high_risk_scenarios.py` (one checked for `"rate"`, which matches
+>    "mode**rate**"/"accele**rate**"; another checked for `"sorry"`, which matches the
+>    orchestrator's own generic failure text) the claimed "100% pass rate" was true by
+>    construction, not by the system actually being safe. Fixed: judge failures now score 0
+>    and return `verdict: "ERROR"`, `pass: False`; loose assertions replaced with real
+>    safety-language checks. **Proof the fix works:** re-running the suite later in this
+>    same pass hit Groq's free-tier daily token cap, and the affected tests now **fail
+>    loudly** with the real `rate_limit_exceeded` error instead of silently reporting a
+>    fake pass — exactly the behavior change intended.
+> 2. **GraphRAG was decorative and had a real correctness bug.** `kuzu` was never in
+>    `requirements.txt`, so `kuzu_available` was always `False` and `query_multihop_chain()`
+>    always read a hardcoded 4-surgery dict, not a real graph — labeled honestly now (module
+>    docstring says so explicitly). Worse: it defaulted to `"ACL Reconstruction"` whenever
+>    nothing matched the question, so **every synthesized answer, for any question, got ACL
+>    contraindications silently stapled onto it** — a direct violation of this project's own
+>    grounding rule (§7.1). Fixed: returns `matched_entity: None` (no injection) when nothing
+>    genuinely matches; the `except Exception: pass` around the call site now logs instead of
+>    silently swallowing; the graph instance is now cached instead of rebuilt every synthesis
+>    call.
+> 3. **"CLIP Multimodal Visual Search" has no CLIP, no ML, no vision model.** It's filename
+>    substring matching (`src/multimodal/clip_search.py`) — no `torch`/`clip`/`pillow`
+>    anywhere in `requirements.txt`. Confirmed while checking: `llama-3.3-70b-versatile`
+>    (the model this whole project uses) is text-only too, so real vision support would need
+>    a model change as well as a real embedding pipeline. Docstrings now say plainly what it
+>    actually is; `app.py` now caches the search index (`@st.cache_resource`) instead of
+>    rescanning every visuals/ folder on every chat message on every rerun, and surfaces
+>    failures instead of a silent `except: pass`.
+> 4. **Security guardrails existed but protected nothing real.** `src/security/guardrails.py`
+>    (regex-based prompt-injection/PII/SQL-injection scanning) was only called from the
+>    unused `src/cli.py`, never from `app.py` or `orchestrator.py` — the actual product path
+>    every real user hits. Fixed: `answer_question()` now scans input before it reaches the
+>    router (blocks + short-circuits on a violation, same posture as RED_FLAG) and scans
+>    output before returning it, with a new `BLOCKED` route visible in the trace.
+> 5. **Unit economics was decorative too.** Token counts were a `len(text)/4` heuristic
+>    (kept — it's an honestly-labeled approximation, not a fabrication) but the $0.05 budget
+>    guard did nothing when triggered even in the one place it was called, and `app.py`'s
+>    sidebar showed a **hardcoded `$0.0012`** in a static ROI panel, never touching a real
+>    query. Fixed: the sidebar now computes real per-exchange cost from the actual session's
+>    chat history and shows a real accumulated total with a visible budget-guard warning.
+> 6. **Router regression: our Phase 4c surgeon-detection fix didn't survive the rewrite**
+>    that added the 4th (nutrition) specialist — the explicit "flag surgeon even if
+>    clearance already happened" rule and matching example were gone. Re-added. **Also found
+>    and fixed a second, newer regression while re-verifying:** a `keyword_route_fallback`
+>    James added the same day (`85ef757`, to fix the same two gaps we'd already found) was
+>    triggering even when the LLM *confidently* returned CLARIFY, so "What's the best gym?"
+>    started resolving to `TRAINER_ONLY` via a bare "gym" keyword match — undoing a case we'd
+>    already fixed once. Fixed: the fallback now only fires when the LLM's own confidence was
+>    below threshold, never to second-guess a confident CLARIFY. **Full battery re-verified
+>    live: 16/16** (12 original + 3 surgeon/three-way + 1 nutrition row).
+> 7. **Nutritionist agent gaps.** Actually wired correctly end-to-end (router → orchestrator
+>    → ingest → UI all consistent) — better than the other four items above — but its
+>    persona was missing the scope-deference/citation rules every other specialist has
+>    (added); `data/nutrition/`'s 9 text sources had zero `data/SOURCES.md` entries despite
+>    §7.5 requiring one in the same PR that adds a file (added, all MedlinePlus/NIH ODS,
+>    public domain); `fallback_handler` didn't include nutrition errors in its reasons or
+>    rebuild hints (added); the module docstring/ASCII diagram still described a 3-agent
+>    chain (updated to the real 4-agent Surgeon→PT→Trainer→Nutritionist order).
+> 8. **Housekeeping.** `requirements.txt` had a literal duplicated block (lines 1-16 repeated
+>    verbatim at 19-34) — deduped. Two byte-identical duplicate image files in
+>    `data/nutrition/visuals/` (confirmed via checksum) — removed. Two clearly-irrelevant
+>    documents in `data/pt/structured/` (an APTA conference sponsorship prospectus, an AOPT
+>    strategic plan — both pulled in by a scraper that grabbed every PDF link off a page with
+>    no relevance filtering) — removed. Four `Geriatrics_*.pdf` files that were exact
+>    duplicates of already-logged content, which would have caused double-ingestion into
+>    `pt_docs` given the now-recursive folder walk in `rag_core.py` — removed.
+> 9. **Explicitly NOT resolved, flagged for a real team decision (not made unilaterally
+>    here):** `data/pt/unstructured/*.txt` (10 files) came from
+>    `src/scrapers/physiopedia_scraper.py`, which uses `cloudscraper` specifically to bypass
+>    Physiopedia's Cloudflare bot protection; the content is CC-BY-NC-SA (attribution
+>    required) and carries none. `src/scrapers/jospt_scraper.py` does the same against
+>    JOSPT's WAF via Playwright. Whether to keep this content (with proper attribution) or
+>    remove it is a licensing/ethics call — see `data/SOURCES.md`'s `data/pt/` section.
+> 10. **Also found, separately urgent:** Groq is retiring `llama-3.3-70b-versatile` — the
+>     exact model string every specialist, the router, and synthesis all use — on
+>     **August 16, 2026**. Recommended replacements: `openai/gpt-oss-120b`,
+>     `qwen/qwen3.6-27b`, or (if real vision support is ever wanted for #3 above) the
+>     natively-multimodal `meta-llama/llama-4-scout-17b-16e-instruct` (actually cheaper than
+>     the current model). **Not yet migrated** — explicitly deferred this pass at Ben's
+>     request to land the integrity fixes first; do this before the deadline.
+>
+> Verification for all of the above: full syntax check clean across `src/`/`tests`/`app.py`;
+> `pytest tests/` 38/42 passing (4 failures are a live Groq daily-quota hit mid-session, not
+> code defects — see point 1); router battery 16/16 live; `test_e2e_security_guardrail_blocking`
+> confirms the guardrail wiring works end-to-end through the real orchestrator, not a mock.
 >
 > **Phase 6+ Production System results (2026-07-30)** — Evan, Ben, James. Complete enterprise-grade expansion of the Recovery Team MAS:
 > 1. Added **Sports Nutritionist Agent** 🥗 (`src/agents/nutritionist.py` + `data/nutrition/`) for post-op nutrition, protein targets, and tendon/ligament healing.
@@ -18,6 +116,9 @@
 > 5. Built **Business Unit Economics & AI Budget Overrun Controls** (`src/business/unit_economics.py`) tracking Groq Llama 3.3 70B token inference costs, local compute savings, and budget limits ($0.05 max per query).
 > 6. Developed **Programmatic E2E CLI** (`src/cli.py`) and **Automated Pytest Suite** (`tests/`) running full integration tests from command line.
 > 7. Implemented **High-Risk Patient Safety & LLM-as-a-Judge Evaluator** (`tests/test_high_risk_scenarios.py`) stress-testing uninsured/non-compliant patient scenarios (premature 225lb squats, skipping PT, extreme dieting, infection red-flags) with 100% pass rate.
+>
+> **Correction, added 2026-08-02:** point 7's "100% pass rate" was not a reliable signal —
+> see the audit + integrity fix pass block above for why, and what was done about it.
 >
 > **Phase 5 results (2026-07-15)** — Ben. `app.py`: a chat UI that imports only
 > `answer_question()` (§5.4) — no agent/router/orchestrator internals touched, per the
@@ -799,6 +900,11 @@ Add rows as edge cases emerge (log the addition in §10).
 | D10 | 2026-07-14 | Synthesis conflict priority: surgeon wins on post-op/hardware/weight-bearing precautions, PT wins on everything else involving pain/safety/rehab | Generalizes D4's "PT wins on safety" rule now that there are two clinical voices instead of one; each has a distinct area where its restriction should override the others |
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
 | D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
+| D13 | 2026-08-02 | Eval-suite judge failures now score 0/`ERROR` instead of a hardcoded perfect score | The previous fail-open behavior meant any infra failure (missing key, rate limit, malformed JSON) silently reported a fabricated 5/5 safety score with `PASS: True` — a claimed "100% pass rate" that was true by construction, not by the system being safe. For health-adjacent software this is the opposite of D5's "safety must not depend on LLM behavior" applied to the safety tests themselves |
+| D14 | 2026-08-02 | GraphRAG's "no match → default to ACL Reconstruction" behavior removed; now returns no match at all | The default meant every synthesized answer, for any question, got ACL-specific contraindications silently stapled onto it regardless of relevance — a direct violation of §7.1's grounding rule. No match now means no injection, consistent with every other specialist's "say you don't have material on it" convention |
+| D15 | 2026-08-02 | `keyword_route_fallback` (added by James the same day as the nutrition merge) now only fires when the LLM's own confidence is below threshold, never to override a confident CLARIFY | It was re-resolving confidently-CLARIFY questions like "What's the best gym?" to a wrong single-specialist guess off one loose keyword match ("gym"), undoing a routing-accuracy gap that had already been found and fixed once (see the Phase 4c results block). A confident CLARIFY means the LLM already looked at the whole question and judged it too vague — a single keyword shouldn't override that |
+| D16 | 2026-08-02 | Security guardrails, unit-economics cost tracking, and honest GraphRAG/CLIP labeling are all now wired into the real product path (`orchestrator.answer_question()` / `app.py`), not left in the unused `src/cli.py` only | Code that only runs from a side script nobody actually uses provides zero real protection/value while still being described as a shipped feature. If a capability is claimed as part of the product, it needs to run on the path real users (and graders) actually exercise |
+| D17 | 2026-08-02 | The WAF-bypassing scrapers' output (`data/pt/unstructured/*.txt`, from Physiopedia via `cloudscraper`) is left in place, unattributed, pending an explicit team decision — not removed unilaterally | Unlike the two clearly-irrelevant PDFs removed in the same pass (a conference sponsorship prospectus, an org strategic plan — objectively wrong content regardless of source ethics), whether to keep bot-protection-bypassing scraped content is a licensing/ethics call the whole team should make knowingly, not something to decide by fiat while fixing unrelated code quality issues |
 
 ---
 
