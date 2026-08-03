@@ -135,6 +135,13 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "specialist applies yet.\n"
     "Do NOT use RED_FLAG -- urgent medical warning signs are handled "
     "separately, before you ever see the question.\n\n"
+    "IMPORTANT: if the question mentions a specific surgery, a surgeon's "
+    "clearance/instructions, surgical hardware, or a post-op timeline or "
+    "milestone -- even if that surgeon involvement already happened (e.g. "
+    "\"my surgeon already cleared me\") -- always include 'surgeon' in "
+    "specialists. The surgeon's post-op protocol still constrains what the "
+    "other specialists can safely recommend; it does not stop applying just "
+    "because the clearance was already given.\n\n"
     "EXAMPLES:\n"
     "Q: \"What's the best gym?\"\n"
     "THOUGHT: The user is asking a broad question lacking any context about their physical condition, goals, or injury status.\n"
@@ -145,6 +152,9 @@ _ROUTER_PROMPT = ChatPromptTemplate.from_template(
     "Q: \"My surgeon cleared me for lifting after ACL reconstruction. What exercises and diet should I follow?\"\n"
     "THOUGHT: The user is transitioning back to training post-surgery and needs surgical protocols, rehab exercises, training guidance, and nutrition.\n"
     "DECISION: TEAM | 0.95 | pt,trainer,surgeon,nutrition | Post-op return to lifting with dietary protocol requires full team alignment.\n\n"
+    "Q: \"My surgeon cleared me for full weight-bearing 6 weeks after knee surgery -- how do I get back into leg training?\"\n"
+    "THOUGHT: The clearance already happened, but the surgeon's weight-bearing timeline still bounds what the PT and trainer can safely plan, so all three apply.\n"
+    "DECISION: TEAM | 0.95 | pt,trainer,surgeon | Post-op weight-bearing status still constrains PT/trainer planning even though clearance was already given.\n\n"
     "Q: \"My knee hurts when I squat\"\n"
     "THOUGHT: The user is experiencing pain during a specific movement, which requires a physical therapist to diagnose or provide rehab exercises.\n"
     "DECISION: PT_ONLY | 0.9 | pt | Pain during movement requires PT assessment.\n\n"
@@ -348,13 +358,23 @@ def classify(question: str) -> RouteDecision:
             "rules", dict(_EMPTY_SCORES),
         )
 
-    if decision.confidence < CLARIFY_THRESHOLD or decision.label == CLARIFY:
+    # Keyword fallback only gets a say when the LLM itself was genuinely
+    # unsure (confidence < threshold) -- including when its low-confidence
+    # answer happened to be CLARIFY. It does NOT get a say when the LLM
+    # *confidently* returned CLARIFY: that means the LLM judged the whole
+    # question too vague/subjective on its own reasoning, and second-guessing
+    # that with a single loose keyword match (e.g. "gym" matching in "What's
+    # the best gym?") was silently overriding a correct CLARIFY with a wrong
+    # single-specialist guess. Regression caught by re-running the router
+    # battery after this fallback was added -- see PROJECT_PLAN.md decision log.
+    if decision.confidence < CLARIFY_THRESHOLD:
         fallback = keyword_route_fallback(q)
         if fallback:
             return fallback
-        decision.reasoning = f"Low confidence ({decision.confidence:.2f}) - {decision.reasoning}"
-        decision.label = CLARIFY
-        decision.scores = dict(_EMPTY_SCORES)
+        if decision.label != CLARIFY:
+            decision.reasoning = f"Low confidence ({decision.confidence:.2f}) - {decision.reasoning}"
+            decision.label = CLARIFY
+            decision.scores = dict(_EMPTY_SCORES)
     return decision
 
 

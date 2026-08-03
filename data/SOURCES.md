@@ -49,6 +49,33 @@ topic URLs to the consolidated Sports Injuries fact sheet — only the one canon
 kept here. MedlinePlus files contain only the `topic-summary` block (the rest of those
 pages is link navigation, deliberately excluded).
 
+**`data/pt/structured/` addition (audit pass, 2026-08-02):**
+
+| File | Source | License |
+|---|---|---|
+| structured/Evidence-Based-Massage-Therapy.pdf | https://openlibrary-repo.ecampusontario.ca/jspui/bitstream/123456789/641/3/Evidence-Based-Massage-Therapy-1592410109._print.pdf | OER (eCampusOntario open textbook repository) |
+
+This file was previously present but unlogged. Two other PDFs that were sitting alongside
+it — an APTA conference sponsorship prospectus and an AOPT organizational strategic plan —
+were removed in the same pass: they came from `src/scrapers/clinical_downloader.py`
+indiscriminately downloading every PDF link off an AOPT clinical-guidelines page with no
+relevance filtering, and are not clinical/educational content by any reasonable curation
+standard for this project. Four `Geriatrics_*.pdf` files were also removed from this folder
+as exact duplicates of files already logged above (`cdc_steadi_*`, `nia_exercise_and_older_adults.pdf`)
+— `src/scrapers/jgpt_scraper.py` had copied them here under a different filename, which
+would have caused the same content to be double-ingested into `pt_docs` (the folder-walk in
+`rag_core.py` is now recursive).
+
+**Still unresolved, flagged not fixed:** `data/pt/unstructured/*.txt` (10 files: Aerobic
+Exercise, Endurance Exercise, Flexibility, Injury Prevention and Body Mechanics, Muscle,
+Neuromotor Function, Physical Activity, Strength Training, Breathing Pattern Disorders,
+Therapeutic Exercise) came from `src/scrapers/physiopedia_scraper.py`, which uses
+`cloudscraper` specifically to bypass Physiopedia's Cloudflare bot protection.
+Physiopedia's content is CC-BY-NC-SA (attribution required, non-commercial), and these
+files carry no source URL/license/attribution at all. Whether to keep this content (and
+if so, add proper attribution) or remove it is a licensing/ethics call for the team, not
+made unilaterally here — see PROJECT_PLAN.md decision log.
+
 ## data/trainer/ — Gym Trainer corpus (fetched 2026-07-12)
 
 | File | Source | License |
@@ -117,3 +144,36 @@ joint-replacement-surgery` overview page; `medlineplus_surgical_wound_infection.
 Only `nhs.uk` main-domain pages were used for NHS content (not individual NHS Trust
 subdomains like `guysandstthomas.nhs.uk`, which are separate legal entities not
 necessarily under the same OGL terms) — consistent with the PT/trainer corpora.
+
+## data/nutrition/ — Nutritionist corpus (fetched 2026-07-30)
+
+| File | Source | License |
+|---|---|---|
+| medlineplus_diet_and_wound_healing.md | https://medlineplus.gov/ency/article/002458.htm | PD |
+| medlineplus_minerals.md | https://medlineplus.gov/ency/article/002467.htm | PD |
+| medlineplus_protein_in_diet.md | https://medlineplus.gov/ency/article/002470.htm | PD |
+| medlineplus_vitamins.md | https://medlineplus.gov/ency/article/002404.htm | PD |
+| nih_ods_calcium.md | https://ods.od.nih.gov/factsheets/Calcium-Consumer/ | PD |
+| nih_ods_exercise_and_athletic_performance.md | https://ods.od.nih.gov/factsheets/ExerciseAndAthleticPerformance-Consumer/ | PD |
+| nih_ods_omega3.md | https://ods.od.nih.gov/factsheets/Omega3FattyAcids-Consumer/ | PD |
+| nih_ods_vitamin_c.md | https://ods.od.nih.gov/factsheets/VitaminC-Consumer/ | PD |
+| nih_ods_vitamin_d.md | https://ods.od.nih.gov/factsheets/VitaminD-Consumer/ | PD |
+| nih_ods_zinc.md | https://ods.od.nih.gov/factsheets/Zinc-Consumer/ | PD |
+
+All nine text files are US federal government sources (MedlinePlus, NIH Office of
+Dietary Supplements) — public domain, same convention as the rest of this project.
+Provenance (source URL, title, fetch timestamp) is also embedded as an HTML comment
+header in each file. Logged here 2026-08-02 during an audit pass; the files themselves
+were fetched 2026-07-30 as part of the nutritionist-agent addition and had not yet been
+added to this ledger, breaking §7.5 until now.
+
+**`visuals/` (images), caveat:** `USDA_Food_Pyramidgif.webp` and
+`USDA_MyPlate_greensvg.webp` come from `src/scrapers/nutrition_media_scraper.py`, which
+queries the Wikimedia Commons search API for terms like "MyPlate" / "Food pyramid" and
+downloads whatever image results come back with an `image/*` mime type. Unlike every
+text source above, **the specific license of each individual returned image was not
+manually verified** — Commons requires every hosted file to carry *some* free license,
+but they vary (PD/CC0, CC-BY, CC-BY-SA) and reuse terms differ. Two exact duplicate
+files (byte-identical, different names) were found and removed during the same audit
+pass. Flagged as a real gap, not resolved here: if these images ship in a real deliverable,
+verify each one's actual Commons license page before reuse.
