@@ -1,97 +1,160 @@
-<svg width="100%" viewBox="0 0 920 720" role="img" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 1000 1150" role="img" xmlns="http://www.w3.org/2000/svg">
 <title>Recovery Team RAG architecture</title>
-<desc>Layered architecture: Streamlit UI calls the orchestrator; a router (RED_FLAG regex first, then Groq LLM classification) produces a route decision that fans out to whichever specialist(s) apply -- PT_ONLY, TRAINER_ONLY, and SURGEON each reach their agent directly; TEAM routes chain Orthopedic Surgeon, Physical Therapist, and Gym Trainer agents most-restrictive-first via peer_context, which also carries structured constraints extracted by src/agents/constraints.py. Each agent is backed by its own Chroma collection; a synthesis node merges their drafts into one attributed answer with a standing disclaimer.</desc>
+<desc>Layered architecture. The Streamlit UI accepts a question and an optional photo, which a Gemini vision call converts to a text description first. Inside the LangGraph orchestrator, a follow-up is resolved against prior turns into a standalone question; a router checks a RED_FLAG regex before any model call and otherwise classifies with a small LM; a planner (small LM) then chooses which specialists run and in what order, capped at four. One consult_next node loops over that plan -- the sequence is data, not graph topology -- and each specialist receives every upstream draft plus its structured constraints as binding peer_context. Specialists may call deterministic calculators, re-query their own Chroma collection, or (only when their own retrieval returned nothing) search PubMed. A bounded back-channel lets one specialist put a question to another. Synthesis merges the drafts into one attributed answer, and a compliance check re-verifies that answer against every extracted constraint before it reaches the patient.</desc>
 <defs>
 <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="arrowboth" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker>
 </defs>
 
 <g style="font-family:'Anthropic Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 
-<!-- Streamlit UI -->
-<rect x="360" y="24" width="200" height="52" rx="8" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
-<text x="460" y="44" text-anchor="middle" dominant-baseline="central" style="fill:rgb(68,68,65);font-size:14px;font-weight:500">Streamlit UI (app.py)</text>
-<text x="460" y="62" text-anchor="middle" dominant-baseline="central" style="fill:rgb(95,94,90);font-size:12px">Chat, badges, sources, restrictions</text>
-<line x1="460" y1="76" x2="460" y2="106" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<!-- ── Streamlit UI + vision side-branch ─────────────────────────────────── -->
+<rect x="330" y="20" width="250" height="52" rx="8" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
+<text x="455" y="40" text-anchor="middle" dominant-baseline="central" style="fill:rgb(68,68,65);font-size:14px;font-weight:500">Streamlit UI (app.py)</text>
+<text x="455" y="58" text-anchor="middle" dominant-baseline="central" style="fill:rgb(95,94,90);font-size:12px">Chat · badges · sources · restrictions · trace</text>
 
-<!-- Orchestrator container -->
-<rect x="40" y="106" width="840" height="404" rx="20" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
-<text x="60" y="128" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">Orchestrator — LangGraph StateGraph (orchestrator.py)</text>
+<rect x="640" y="20" width="270" height="52" rx="8" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
+<text x="775" y="40" text-anchor="middle" dominant-baseline="central" style="fill:rgb(68,68,65);font-size:14px;font-weight:500">Optional photo → vision.py</text>
+<text x="775" y="58" text-anchor="middle" dominant-baseline="central" style="fill:rgb(95,94,90);font-size:12px">Gemini Flash → text description</text>
+<line x1="640" y1="46" x2="588" y2="46" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<text x="614" y="34" text-anchor="middle" style="fill:rgb(82,81,78);font-size:10px">prepended</text>
 
-<!-- Router (narrow, stacked above the full-width route decision) -->
-<rect x="330" y="146" width="260" height="48" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
-<text x="460" y="163" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Router (router.py)</text>
-<text x="460" y="179" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">RED_FLAG regex + Groq LLM</text>
-<line x1="460" y1="194" x2="460" y2="210" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="455" y1="72" x2="455" y2="100" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<!-- Route decision: spans the full width, directly above all three agents -->
-<rect x="60" y="210" width="800" height="48" rx="8" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:0.5px"/>
-<text x="460" y="228" text-anchor="middle" dominant-baseline="central" style="fill:rgb(99,56,6);font-size:14px;font-weight:500">Route decision</text>
-<text x="460" y="244" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133,79,11);font-size:12px">PT_ONLY · TRAINER_ONLY · SURGEON · TEAM · RED_FLAG · CLARIFY</text>
+<!-- ── Orchestrator container ────────────────────────────────────────────── -->
+<rect x="30" y="100" width="940" height="800" rx="20" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
+<text x="50" y="122" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">Orchestrator — LangGraph StateGraph (orchestrator.py)</text>
 
-<!-- down arrows into the three agents; each is independently reachable, not only via TEAM -->
-<line x1="185" y1="258" x2="185" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="460" y1="258" x2="460" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="735" y1="258" x2="735" y2="300" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<text x="195" y="280" style="fill:rgb(82,81,78);font-size:10px">SURGEON route</text>
-<text x="470" y="280" style="fill:rgb(82,81,78);font-size:10px">PT_ONLY route</text>
-<text x="745" y="280" style="fill:rgb(82,81,78);font-size:10px">TRAINER_ONLY</text>
+<!-- Resolve follow-up -->
+<rect x="295" y="140" width="320" height="48" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+<text x="455" y="157" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Resolve follow-up (conversation.py)</text>
+<text x="455" y="173" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">≤6 prior turns → standalone question</text>
+<line x1="455" y1="188" x2="455" y2="206" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<!-- Three specialist agents -->
-<rect x="60" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="185" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Orthopedic Surgeon</text>
-<text x="185" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Post-op protocols, timelines</text>
+<!-- Router -->
+<rect x="295" y="206" width="320" height="48" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+<text x="455" y="223" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">Router (router.py)</text>
+<text x="455" y="239" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">RED_FLAG regex FIRST · then gpt-oss-20b · keyword floor</text>
+<line x1="455" y1="254" x2="455" y2="270" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<rect x="335" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="460" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Physical Therapist</text>
-<text x="460" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Rehab, pain vs soreness, ROM</text>
+<!-- Route decision -->
+<rect x="50" y="270" width="900" height="48" rx="8" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:0.5px"/>
+<text x="500" y="287" text-anchor="middle" dominant-baseline="central" style="fill:rgb(99,56,6);font-size:14px;font-weight:500">Route decision</text>
+<text x="500" y="303" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133,79,11);font-size:12px">PT_ONLY · TRAINER_ONLY · SURGEON · NUTRITION_ONLY · TEAM · RED_FLAG · CLARIFY</text>
 
-<rect x="610" y="300" width="250" height="60" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
-<text x="735" y="318" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:14px;font-weight:500">Gym Trainer</text>
-<text x="735" y="338" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:12px">Programming, progressive overload</text>
+<!-- RED_FLAG / CLARIFY escape hatches, right side -->
+<line x1="860" y1="318" x2="860" y2="344" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="750" y="344" width="200" height="46" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="850" y="360" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">safety_response</text>
+<text x="850" y="376" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">RED_FLAG · canned · NO LLM</text>
+<rect x="750" y="398" width="200" height="40" rx="8" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:0.5px"/>
+<text x="850" y="418" text-anchor="middle" dominant-baseline="central" style="fill:rgb(95,94,90);font-size:11px">ask_clarification · fallback_handler</text>
+<text x="850" y="449" text-anchor="middle" style="fill:rgb(82,81,78);font-size:10px">these go straight to END — no synthesis</text>
 
-<!-- peer_context chain, most-restrictive first (TEAM route only) -->
-<text x="322" y="280" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
-<line x1="310" y1="330" x2="333" y2="330" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<text x="597" y="280" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:11px">peer_context</text>
-<line x1="585" y1="330" x2="608" y2="330" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<!-- Planner -->
+<line x1="400" y1="318" x2="400" y2="344" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<text x="408" y="334" style="fill:rgb(82,81,78);font-size:10px">specialist routes</text>
+<rect x="240" y="344" width="320" height="52" rx="8" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:0.5px"/>
+<text x="400" y="362" text-anchor="middle" dominant-baseline="central" style="fill:rgb(99,56,6);font-size:14px;font-weight:500">Planner (planner.py) — gpt-oss-20b</text>
+<text x="400" y="379" text-anchor="middle" dominant-baseline="central" style="fill:rgb(133,79,11);font-size:12px">chooses WHICH specialists and in WHAT ORDER · plan ≤ 4</text>
+<line x1="400" y1="396" x2="400" y2="416" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<text x="408" y="408" style="fill:rgb(82,81,78);font-size:10px">plan = ["surgeon", "pt", …]</text>
 
-<text x="460" y="374" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">All three subclass SpecialistAgent (base.py) · consult() never raises</text>
-<text x="460" y="388" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">TEAM chains Surgeon → PT → Trainer, most-restrictive first — only whichever cues fired</text>
-<text x="460" y="402" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">peer_context also carries structured constraints — extracted via src/agents/constraints.py</text>
+<!-- ── consult_next loop ─────────────────────────────────────────────────── -->
+<rect x="50" y="416" width="660" height="214" rx="14" style="fill:none;stroke:rgb(83,74,183);stroke-width:1px;stroke-dasharray:5 4"/>
+<text x="66" y="436" style="fill:rgb(60,52,137);font-size:13px;font-weight:500">consult_next — one node, looped over the plan</text>
+<text x="66" y="452" style="fill:rgb(83,74,183);font-size:11px">the sequence is DATA, not graph topology · the one cycle in the graph, bounded by plan length</text>
 
-<!-- down arrows into synthesis. The center (PT) column sits directly under the
-     centered note text, so that one arrow is split into two segments with a
-     gap for the text rather than drawn straight through it. -->
-<line x1="185" y1="360" x2="185" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="460" y1="360" x2="460" y2="368" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="460" y1="408" x2="460" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
-<line x1="735" y1="360" x2="735" y2="434" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="64" y="466" width="152" height="66" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="140" y="484" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:13px;font-weight:500">Orthopedic Surgeon</text>
+<text x="140" y="500" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">Post-op protocols</text>
+<text x="140" y="516" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">surgeon_docs · k=6</text>
 
-<!-- Synthesis -->
-<rect x="60" y="434" width="800" height="56" rx="8" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:0.5px"/>
-<text x="460" y="452" text-anchor="middle" dominant-baseline="central" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">synthesize_team_answer — care coordinator</text>
-<text x="460" y="470" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:12px">Attributes each specialist · surgeon wins post-op/hardware, PT wins otherwise · appends disclaimer</text>
+<rect x="228" y="466" width="152" height="66" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="304" y="484" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:13px;font-weight:500">Physical Therapist</text>
+<text x="304" y="500" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">Rehab · pain vs soreness</text>
+<text x="304" y="516" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">pt_docs · k=6</text>
 
-<line x1="460" y1="510" x2="460" y2="540" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="392" y="466" width="152" height="66" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="468" y="484" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:13px;font-weight:500">Gym Trainer</text>
+<text x="468" y="500" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">Programming · overload</text>
+<text x="468" y="516" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">trainer_docs · k=6</text>
 
-<!-- Shared RAG core -->
-<rect x="40" y="540" width="840" height="160" rx="20" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
-<text x="60" y="562" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Shared RAG core (rag_core.py) — local MiniLM embeddings</text>
+<rect x="556" y="466" width="140" height="66" rx="8" style="fill:rgb(225,245,238);stroke:rgb(15,110,86);stroke-width:0.5px"/>
+<text x="626" y="484" text-anchor="middle" dominant-baseline="central" style="fill:rgb(8,80,65);font-size:13px;font-weight:500">Nutritionist</text>
+<text x="626" y="500" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">Recovery nutrition</text>
+<text x="626" y="516" text-anchor="middle" dominant-baseline="central" style="fill:rgb(15,110,86);font-size:11px">nutrition_kb · k=6</text>
 
-<rect x="60" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="185" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: surgeon_docs</text>
-<text x="185" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Surgeon corpus, k=6</text>
+<line x1="216" y1="499" x2="226" y2="499" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="380" y1="499" x2="390" y2="499" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<line x1="544" y1="499" x2="554" y2="499" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
 
-<rect x="335" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="460" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: pt_docs</text>
-<text x="460" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">PT corpus, k=6</text>
+<!-- back-channel shown as a return arrow beneath the row, in clear space -->
+<line x1="620" y1="548" x2="146" y2="548" marker-end="url(#arrow)" style="stroke:rgb(24,95,165);stroke-width:1.5px;stroke-dasharray:4 3"/>
+<text x="383" y="566" text-anchor="middle" style="fill:rgb(24,95,165);font-size:11px">peer_consult back-channel — a specialist may put one question back to another (max 1 round-trip)</text>
 
-<rect x="610" y="580" width="250" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
-<text x="735" y="598" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Chroma: trainer_docs</text>
-<text x="735" y="616" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">Trainer corpus, k=6</text>
+<text x="380" y="588" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">All four subclass SpecialistAgent (base.py) · consult() never raises · siloed to their own collection (D3)</text>
+<text x="380" y="603" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">Each receives ALL upstream drafts + their structured constraints as BINDING peer_context (constraints.py)</text>
+<text x="380" y="618" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">Order is LM-chosen (D28) — the row above is one example plan, not a fixed chain; inversions are logged</text>
 
-<text x="460" y="660" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">One ./chroma_db dir · one collection per agent (siloed knowledge)</text>
-<text x="460" y="680" text-anchor="middle" dominant-baseline="central" style="fill:rgb(82,81,78);font-size:12px">Ingest: data/pt/, data/trainer/, data/surgeon/ → chunk 1000/150 → embed → persist</text>
+<!-- ── Tools ─────────────────────────────────────────────────────────────── -->
+<rect x="734" y="454" width="216" height="178" rx="12" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="842" y="474" text-anchor="middle" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Tools (D29) — src/tools/</text>
+<text x="746" y="498" style="fill:rgb(153,60,29);font-size:11px;font-weight:500">calculators.py</text>
+<text x="746" y="513" style="fill:rgb(82,81,78);font-size:10px">protein · load · 1RM · post-op phase</text>
+<text x="746" y="536" style="fill:rgb(153,60,29);font-size:11px;font-weight:500">search_my_corpus</text>
+<text x="746" y="551" style="fill:rgb(82,81,78);font-size:10px">re-query OWN collection — name is</text>
+<text x="746" y="564" style="fill:rgb(82,81,78);font-size:10px">injected, never model-supplied</text>
+<text x="746" y="587" style="fill:rgb(153,60,29);font-size:11px;font-weight:500">search_pubmed — GATED</text>
+<text x="746" y="602" style="fill:rgb(82,81,78);font-size:10px">schema offered only if own retrieval</text>
+<text x="746" y="615" style="fill:rgb(82,81,78);font-size:10px">was empty · cites [research: PMID]</text>
+<line x1="710" y1="499" x2="732" y2="499" marker-start="url(#arrowboth)" marker-end="url(#arrowboth)" style="stroke:rgb(153,60,29);stroke-width:1.5px"/>
+<text x="842" y="629" text-anchor="middle" style="fill:rgb(82,81,78);font-size:10px">max 2 tool rounds</text>
+
+<!-- ── peer consult back-channel ─────────────────────────────────────────── -->
+<line x1="380" y1="630" x2="380" y2="656" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="220" y="656" width="320" height="50" rx="8" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:0.5px"/>
+<text x="380" y="674" text-anchor="middle" dominant-baseline="central" style="fill:rgb(12,68,124);font-size:14px;font-weight:500">peer_consult — the back-channel</text>
+<text x="380" y="691" text-anchor="middle" dominant-baseline="central" style="fill:rgb(24,95,165);font-size:12px">one specialist asks another · max 1 round-trip</text>
+
+<!-- ── Synthesis ─────────────────────────────────────────────────────────── -->
+<line x1="380" y1="706" x2="380" y2="726" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="50" y="726" width="900" height="52" rx="8" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:1px"/>
+<text x="500" y="744" text-anchor="middle" dominant-baseline="central" style="fill:rgb(60,52,137);font-size:14px;font-weight:500">synthesize_team_answer — care coordinator</text>
+<text x="500" y="762" text-anchor="middle" dominant-baseline="central" style="fill:rgb(83,74,183);font-size:12px">attributes only specialists who actually ran (D26) · keeps every [source: file] citation · appends the disclaimer in Python</text>
+
+<!-- ── Compliance check ──────────────────────────────────────────────────── -->
+<line x1="500" y1="778" x2="500" y2="798" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+<rect x="270" y="798" width="460" height="52" rx="8" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1px"/>
+<text x="500" y="816" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">compliance_check (compliance.py) — gpt-oss-20b</text>
+<text x="500" y="834" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:12px">re-verifies the answer against EVERY extracted constraint, whatever order ran (D30)</text>
+<text x="500" y="868" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">Reports "could not check" distinctly from "checked and clean" — a broken checker never claims a clean bill of health</text>
+
+<line x1="500" y1="900" x2="500" y2="926" marker-end="url(#arrow)" style="stroke:rgb(137,135,129);stroke-width:1.5px"/>
+
+<!-- ── Shared RAG core ───────────────────────────────────────────────────── -->
+<rect x="30" y="926" width="940" height="196" rx="20" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="50" y="948" style="fill:rgb(113,43,19);font-size:14px;font-weight:500">Shared RAG core (rag_core.py) — local MiniLM embeddings, 384-dim, CPU, free</text>
+
+<rect x="52" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="158" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: surgeon_docs</text>
+<text x="158" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">18 docs · 121 chunks</text>
+
+<rect x="282" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="388" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: pt_docs</text>
+<text x="388" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">40 docs · ~203 chunks</text>
+
+<rect x="512" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="618" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: trainer_docs</text>
+<text x="618" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">22 docs · 536 chunks</text>
+
+<rect x="742" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
+<text x="848" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: nutrition_kb</text>
+<text x="848" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">10 docs · 179 chunks</text>
+
+<text x="500" y="1052" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">One ./chroma_db dir · one collection per agent — knowledge siloing is PHYSICAL, not a prompt instruction (D3)</text>
+<text x="500" y="1071" text-anchor="middle" style="fill:rgb(82,81,78);font-size:11px">Ingest: data/&lt;agent&gt;/ → chunk 1000/150 → embed locally → persist · no API key, no rate limits, works offline</text>
+<text x="500" y="1096" text-anchor="middle" style="fill:rgb(82,81,78);font-size:10px">Specialists + synthesis on Groq gpt-oss-120b · router, planner, compliance on gpt-oss-20b · vision on Gemini Flash (D27)</text>
 
 </g>
 </svg>
