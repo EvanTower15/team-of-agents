@@ -142,7 +142,7 @@
 
 <rect x="282" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
 <text x="388" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: pt_docs</text>
-<text x="388" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">40 docs · ~203 chunks</text>
+<text x="388" y="1002" text-anchor="middle" dominant-baseline="central" style="fill:rgb(153,60,29);font-size:11px">40 docs · 1,050 chunks</text>
 
 <rect x="512" y="964" width="212" height="58" rx="8" style="fill:rgb(255,250,248);stroke:rgb(153,60,29);stroke-width:0.5px"/>
 <text x="618" y="984" text-anchor="middle" dominant-baseline="central" style="fill:rgb(113,43,19);font-size:13px;font-weight:500">Chroma: trainer_docs</text>
