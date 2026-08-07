@@ -5,6 +5,54 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
+> **Status: LM ORCHESTRATOR + SPECIALIST TOOL CALLING (2026-08-07)** — a small LM now
+> plans which specialists run and in what order, specialists can call tools, and the whole
+> system runs on post-deprecation models. Full suite 82/82. **This changed the safety
+> posture — see the results block below before repeating any determinism claim in the
+> report.**
+>
+> **LM orchestrator + tool calling results (2026-08-07)** — Ben. Three changes, one of
+> which is a deliberate tradeoff rather than a straight improvement:
+>
+> 1. **Model migration (D27), 9 days ahead of the deadline.** Specialists/synthesis on
+>    `openai/gpt-oss-120b`, routing/planning on `openai/gpt-oss-20b`. Done as part of this
+>    work because the new orchestrator needed a small model anyway, and because gpt-oss
+>    supports tool calling where `llama-3.3-70b-versatile` did not — the tool loop would not
+>    have been possible without it. See the resolved callout above for the operational
+>    gotchas (reasoning tokens, `reasoning_effort`).
+> 2. **A small LM decides which specialists run and in what order (D28).** `src/planner.py`
+>    replaces `route_scores` + hardcoded edges; `plan` and `plan_index` in state drive one
+>    generic `consult_next` node, so sequence is data rather than graph topology.
+>    **Verified live:** *"6 weeks post ACL — what squat depth is safe?"* → plan
+>    `surgeon -> pt`; *"3-day beginner strength program"* → plan `trainer` alone;
+>    *"what should I eat to heal after surgery?"* → plan `surgeon -> nutrition`. Ordering
+>    came out most-restrictive-first in all three without being forced to.
+>    **What this costs:** D4's fixed ordering guaranteed *by construction* that a
+>    restrictive specialist's constraints reached everyone downstream. That guarantee is
+>    gone — a plan of `["trainer","surgeon"]` writes the training plan before the surgeon's
+>    restrictions exist. RED_FLAG still runs on regex before planning (D5), inversions are
+>    logged to the trace, and D30's compliance check catches violations after the fact —
+>    but detection is weaker than prevention, and the report must not claim otherwise.
+> 3. **Specialists can call tools (D29).** Deterministic calculators, own-corpus re-query,
+>    and PubMed gated in code to the miss path. **Verified live:** a protein question
+>    produced `consult_nutrition: 2 source(s), tools=['convert_weight']`, and the
+>    nutritionist honestly said its KB had no specific post-op ACL protein target rather
+>    than inventing one — the grounding rule held *through* tool use. PubMed verified
+>    against live NCBI (real PMIDs, `[research: PMID ...]` citations).
+>
+> **Bugs found and fixed during this work:** (a) `reasoning_effort` passed via
+> `model_kwargs` raises a pydantic ValidationError — the planner silently fell back to
+> rules on every question until caught, which is exactly why the fallback logs its method;
+> (b) `rag_core.retrieve`'s "how to build this collection" error message carried a stale
+> hardcoded map and told users `--agent <agent>` for the surgeon and nutrition collections,
+> now derived from `ingest.AGENT_CORPORA`; (c) specialists ignored their tools entirely
+> until the consult prompt was told they existed — binding tools is not the same as
+> prompting for them.
+>
+> Verification: **82/82** (55 existing + 27 new covering plan bounds, ordering-inversion
+> detection, the PubMed gate, siloing-survives-tool-access, and calculator error handling),
+> plus live end-to-end runs of the plan loop, a real tool call, and the compliance check.
+>
 > **Status: CONVERSATION MEMORY + AGENT-TO-AGENT BACK-CHANNEL (2026-08-07)** — follow-ups
 > now resolve against prior turns instead of being answered from scratch, and specialists
 > can ask each other direct questions mid-run. Full suite 55/55 green. See the results
@@ -59,38 +107,30 @@
 
 ---
 
-## ⚠️ ACTION REQUIRED BEFORE 2026-08-16 — the LLM this project runs on is being retired
+## ✅ RESOLVED — the August 16 model retirement
 
-**Groq is shutting down `llama-3.3-70b-versatile` on August 16, 2026.** That is the exact
-model string the router, all four specialist agents, and synthesis every one call. When it
-is retired, **the entire app stops working** — every Groq call returns an error and the
-system degrades to fallback/CLARIFY responses for every question.
+`llama-3.3-70b-versatile` was retired by Groq on 2026-08-16. **Migrated 2026-08-07 (D27)**,
+as part of the LM-orchestrator work rather than as a separate pass:
 
-This is a hard external deadline, not a stylistic cleanup. Deliberately deferred on
-2026-08-02 to land the audit-integrity and vision work first (decision D22); it has **not**
-been started.
-
-**What to change (2 lines):**
-
-| File | Line | Current |
+| Use | Model | Why |
 |---|---|---|
-| `src/rag_core.py` | `GROQ_MODEL` | `"llama-3.3-70b-versatile"` |
-| `src/router.py` | `MODEL` | `"llama-3.3-70b-versatile"` |
+| Specialists, synthesis, peer consult | `openai/gpt-oss-120b` | Groq's recommended replacement; supports tool calling, which the D29 tool loop requires |
+| Routing, planning, compliance check | `openai/gpt-oss-20b` | Classification/selection work; `reasoning_effort="low"` |
 
-**Replacement candidates — both confirmed live on this project's Groq key (2026-08-02):**
-- `openai/gpt-oss-120b` — Groq's own recommended replacement; free-tier limits 30 RPM /
-  8K TPM / 1K RPD (vs. 12K TPM today, so slightly *tighter* per-minute headroom)
-- `qwen/qwen3.6-27b` — same free-tier limits
+Two things worth knowing before touching model config again:
 
-**Do not skip verification.** The router prompt is tuned with few-shot examples and an
-explicit surgeon-detection rule, and its accuracy is model-dependent — two separate
-routing regressions have already been caught by re-running the battery (see the Phase 4c
-and audit results blocks). After swapping the model string, re-run the full §9 battery
-live and confirm it still passes 16/16 before considering the migration done. Budget a
-real chunk of time for this, not a two-line commit.
+* **`llama-3.1-8b-instant` shut down the same day** — the obvious "small model" pick was
+  also retired, which is why the small model here is `gpt-oss-20b`. Check Groq's
+  deprecation page rather than assuming a model is available; `meta-llama/llama-4-scout`
+  was already gone by 2026-07-17.
+* **gpt-oss models spend completion tokens on reasoning before emitting content.** Anything
+  that sets `max_tokens` must leave headroom or `content` comes back empty. For
+  classification, `reasoning_effort="low"` costs 43 completion tokens vs 278 for an
+  identical answer — material on a free tier this project has capped out repeatedly. It is
+  a first-class `ChatGroq` parameter; passing it via `model_kwargs` raises a pydantic
+  ValidationError.
 
-**Watch the free-tier daily token cap while testing:** this session exhausted the 100K
-TPD limit purely on live verification runs, which surfaces as `RateLimitError` mid-battery.
+Verified: full suite 82/82 on the new models, including the high-risk safety scenarios.
 
 ---
 
@@ -1067,6 +1107,10 @@ Add rows as edge cases emerge (log the addition in §10).
 | D24 | 2026-08-07 | Follow-up resolution also carries clinical context into questions that *look* standalone, not just obviously-dependent ones | Observed live: "give me a 3-day beginner strength program" routes `TRAINER_ONLY` with no history but `TEAM` (surgeon+PT+trainer) once the conversation has established "ACL reconstruction 6 weeks ago" — the same question, correctly bounded by post-op restrictions instead of answered as though the patient were uninjured. In a recovery product that is a safety property, so the prompt was rewritten to make it intentional rather than incidental model behavior |
 | D25 | 2026-08-07 | Agent-to-agent gains a **back-channel** (`src/agents/peer_consult.py`), implemented as a single bounded node rather than a cyclic graph edge | The chain was strictly one-directional (Surgeon→PT→Trainer→Nutritionist via `peer_context`); a specialist that hit the edge of its scope could only hedge. Now one specialist can put a direct question to another and the reply joins the synthesis evidence — verified live: `peer_consult: trainer -> surgeon: "What are the post-operative weight-bearing status and ROM restrictions..."`. Capped at `MAX_CONSULT_ROUNDS=1` and wired as a straight-through node so the DAG's documented "cannot loop" safety property survives and the token budget stays bounded (the free-tier daily cap has been hit during testing more than once) |
 | D26 | 2026-08-07 | Synthesis may attribute claims only to specialists whose draft is actually present; GraphRAG reference data is labeled as such and gets no `[source: ...]` marker | Caught during peer-consult testing: an answer said "Your nutritionist recommends Protein (2.0g/kg)..." when the nutritionist had never been consulted — the text came from the GraphRAG reference block and synthesis invented the attribution. Telling a patient a specialist said something they never said is precisely the class of overclaim this project has already had to correct once |
+| D27 | 2026-08-07 | Migrated off `llama-3.3-70b-versatile` ahead of its 2026-08-16 retirement: specialists/synthesis to `openai/gpt-oss-120b`, routing/planning to `openai/gpt-oss-20b` | The deadline callout above §0 is now resolved. Note the obvious "small model" pick, `llama-3.1-8b-instant`, shuts down the SAME day — verified against Groq's deprecation page, not assumed. Two operational findings: (a) gpt-oss models emit reasoning tokens before content, so anything setting `max_tokens` must leave headroom or `content` returns empty; (b) `reasoning_effort="low"` costs 43 completion tokens vs 278 for an identical routing answer, which on a free tier this project has capped out repeatedly is the difference between a battery run fitting in budget and not. Also required: `reasoning_effort` is a first-class `ChatGroq` parameter and raises a pydantic ValidationError if passed via `model_kwargs` |
+| D28 | 2026-08-07 | A small LM now decides **which specialists run and in what order** (`src/planner.py`), replacing `route_scores` + hardcoded graph edges | Ben's call, made knowingly against a flagged tradeoff. **This gives up a safety guarantee.** Fixed ordering (D4) guaranteed *by construction* that a restrictive specialist's constraints reached everyone downstream as binding `peer_context`; with LM-chosen order a plan of `["trainer","surgeon"]` writes the training plan before the surgeon's restrictions exist. Contained by three things, none of which fully restores it: RED_FLAG still runs on regex before planning (D5); ordering inversions are logged to the trace; and `compliance_check` re-verifies the final answer against every extracted constraint regardless of order (D30). **The claim "the model doesn't decide the things that matter" is now false and has been removed from Capabilities_Overview §7 — do not repeat it in the report.** The graph gains exactly one cycle (`consult_next` -> `consult_next`), bounded by plan length, which the planner caps and de-duplicates at the size of the roster |
+| D29 | 2026-08-07 | Specialists can call tools: deterministic calculators, own-corpus re-query, and PubMed — with PubMed gated in CODE to the case where the agent's own retrieval returned nothing | Calculators are the safe majority of the value: the numbers this system hands patients are arithmetic, and arithmetic is where LLMs quietly slip. They compute over patient-supplied values rather than introducing outside claims, so §7.1 is untouched. `search_my_corpus` preserves siloing (D3) because the collection name is injected by the agent, never read from model-supplied arguments — asserted by test. PubMed is the one that changes the product's character: it is primary research, not the vetted patient-education material in `data/`, and a single small-n abstract can read like consensus guidance inside a synthesized answer. Hence: schema not even offered unless the corpus missed, cited as `[research: PMID ...]` never `[source: filename]`, metadata only (sidesteps the full-text licensing problem `data/` already had), and unable to override a restriction. Tool loop capped at MAX_TOOL_ROUNDS=2 — unbounded tool loops are the standard way an agent burns a metered budget |
+| D30 | 2026-08-07 | `compliance_check` verifies the synthesized answer against every extracted constraint before it reaches the patient, and appends a visible warning on violation | The after-the-fact replacement for what D28 removed. Deliberately conservative: it flags only when the answer *affirmatively recommends* something a restriction forbids — telling a patient to avoid a restricted movement is the system working, not a violation. It also distinguishes "checked and clean" from "could not check" (`checked: False`), so a broken checker never reports a clean bill of health it did not establish — the same failure mode as the fabricated eval pass rate corrected in D23's audit |
 
 ---
 

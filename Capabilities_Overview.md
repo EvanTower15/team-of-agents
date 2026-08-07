@@ -341,12 +341,31 @@ verbatim).
 | `ask_clarification` | One focused follow-up question (LLM, with a canned fallback if the LLM is down) |
 | `fallback_handler` | Terminal for dead ends: apologizes, says what went wrong, prints the rebuild commands (now including `--agent surgeon`) |
 
-**Which specialists actually get consulted on TEAM (Phase 4b)** is decided by `route_scores`,
-not a fixed pair: the conditional edges after `route_question`, `consult_surgeon`, and
-`consult_pt` each check whether the *next* specialist's bucket scored above zero before
-routing to it. A PT+trainer TEAM question (no surgeon cues) skips `consult_surgeon`
-entirely — the chain is exactly as long as the question calls for, never padded with an
-irrelevant specialist.
+**Which specialists get consulted, and in what order, is now decided by a small LM**
+(`src/planner.py`, gpt-oss-20b). This replaced the fixed `route_scores` + hardcoded-edge
+approach in D28. The planner returns an ordered list — e.g. `["surgeon", "pt"]` — which
+becomes `state["plan"]`, and a single generic `consult_next` node walks it. The sequence is
+data now, not graph topology.
+
+> **This traded away a safety guarantee, on purpose. Read this before citing the old claim.**
+>
+> Earlier versions of this document said the model doesn't decide the things that matter.
+> That is no longer true, and the report should not repeat it. Fixed ordering (D4)
+> guaranteed *by construction* that a restrictive specialist's constraints reached everyone
+> downstream as binding `peer_context`. With LM-chosen order, a plan of
+> `["trainer", "surgeon"]` produces a training plan written before the surgeon's
+> restrictions exist.
+>
+> Three things contain that, none of which fully restores the old guarantee:
+> 1. **RED_FLAG still runs on regex before planning** (D5). An emergency never depends on a
+>    planning decision.
+> 2. **Ordering inversions are detected and logged** to the execution trace
+>    (`planner.violates_restrictiveness`), so "constraints arrived too late" is visible
+>    rather than silent.
+> 3. **`compliance_check` re-verifies the finished answer** against every constraint any
+>    specialist stated, regardless of run order (`src/agents/compliance.py`). A violation
+>    appends a visible warning to the answer. This is after-the-fact detection, not
+>    prevention — which is a genuinely weaker property than D4 provided.
 
 **Error philosophy (inherited from the opim-5517 reference project):** nodes never raise.
 Agents capture errors into their result dict; conditional edges inspect state and steer dead
@@ -631,3 +650,42 @@ regex-era numbers for historical comparison.
 - **Conservative by design:** routine "talk to your doctor" disclaimers do not trigger it;
   it fires only when an answer would materially change. Malformed or self-directed consult
   requests resolve to "no consult" rather than routing to a nonexistent agent.
+
+### 12.10 Specialist tool calling (`src/tools/`)
+
+Specialists are no longer a single prompted LLM call — they can call tools and loop
+(bounded at `MAX_TOOL_ROUNDS = 2`). Three families, with deliberately different risk
+profiles:
+
+**Deterministic calculators** (`calculators.py`) — protein targets, training load, 1RM
+estimation, weeks-post-op phase, unit conversion. Pure Python; no LLM, no network, no
+corpus. These matter because the numbers this system hands a patient are arithmetic, and
+arithmetic is where LLMs quietly slip. They **compute** over values the patient supplied
+rather than introducing outside medical claims, so §7.1 grounding is untouched — the
+guideline (e.g. g/kg) still has to come from the specialist's cited context; the tool only
+multiplies. Every one returns an `error` key instead of raising, so a malformed tool call
+degrades to a message the specialist can read.
+
+**`search_my_corpus`** — a second retrieval attempt against the specialist's *own*
+collection with better terms. Knowledge siloing (D3) survives because the collection name
+is **injected by the agent, never taken from model-supplied arguments** — a specialist
+cannot use this to read another's corpus, and there's a test asserting exactly that.
+
+**`search_pubmed`** — the one that changes this system's character, so it's constrained in
+code rather than by prompt (D29):
+- **Withheld unless the specialist's own retrieval returned nothing.** The schema isn't
+  even offered otherwise, so it's a miss-path fallback for honest ignorance rather than a
+  routine substitute for the curated corpus.
+- **Cited as `[research: PMID ...]`, never `[source: filename]`** — a patient and a grader
+  can both tell at a glance which claims rest on vetted guidance and which on a single
+  study abstract.
+- **Cannot override a restriction** — enforced in the synthesis prompt and re-checked by
+  `compliance_check`.
+- **Metadata only** (title, journal, year, abstract), which avoids the full-text licensing
+  problem this project already had to clean up once in `data/`.
+
+**The honest caveat:** PubMed is primary research — small-n trials, animal models,
+conflicting findings — not the clinically vetted patient-education material in `data/`. A
+single abstract is not equivalent authority to an NIH consensus guideline, but inside a
+synthesized answer it can read that way. That is the cost of this feature, accepted
+knowingly.

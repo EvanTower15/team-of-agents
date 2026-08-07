@@ -1,48 +1,54 @@
 """
-src/orchestrator.py — the LangGraph team workflow (Phase 4, extended Phase 4b,
-now a 4-specialist chain).
+src/orchestrator.py — the LangGraph team workflow.
 
-    START -> route_question ─┬─ PT_ONLY        -> consult_pt ──────────────────────┐
-                             ├─ TRAINER_ONLY   -> consult_trainer ──────────────────┤
-                             ├─ SURGEON        -> consult_surgeon ──────────────────┤
-                             ├─ NUTRITION_ONLY -> consult_nutritionist ─────────────┤
-                             ├─ TEAM  -> [surgeon] -> [pt] -> [trainer] -> [nutritionist] ┤
-                             │           (whichever cues fired, most-restrictive first)   │
-                             ├─ RED_FLAG       -> safety_response -> END            │
-                             └─ CLARIFY        -> ask_clarification -> END          v
-                                              peer_consult -> synthesize_team_answer -> END
+    START -> route_question ─┬─ RED_FLAG -> safety_response  -> END
+                             ├─ CLARIFY  -> ask_clarification -> END
+                             └─ else     -> plan_consultation
+                                                 │
+                                    ┌────────────▼─────────────┐
+                                    │  consult_next  (loops)   │  <- one node per
+                                    │  through plan[] in order │     planned agent
+                                    └────────────┬─────────────┘
+                                                 ▼
+                            peer_consult -> synthesize_team_answer -> END
                        (agent error / no usable draft) -> fallback_handler -> END
 
-Design notes (mirrors the opim-5517 reference workflow):
-* The graph is a DAG — no cycles, cannot loop.
-* ``answer_question(question, history=None)`` resolves a follow-up question
-  against prior turns BEFORE routing (src/conversation.py). Without that, a
-  message like "what about my knee?" reaches the router with no referent and
-  collapses to CLARIFY — conversations were persisted but never reasoned over.
+Design notes:
+* **A small LM chooses which specialists run and in what order** (D28,
+  src/planner.py), replacing the fixed surgeon->PT->trainer->nutrition edge
+  chain. `plan` and `plan_index` in state drive a single generic
+  ``consult_next`` node; the sequence is data, not graph topology.
+* **The graph has exactly one cycle**, consult_next -> consult_next, bounded
+  by len(plan). planner.py caps and de-duplicates the plan at the size of the
+  specialist roster, so it iterates at most once per specialist.
+* **This trades away a safety guarantee, deliberately.** Fixed ordering (D4)
+  used to guarantee by construction that a restrictive specialist's
+  constraints reached everyone downstream as binding ``peer_context``. With
+  LM-chosen order, a plan like ["trainer", "surgeon"] writes the training
+  plan before the surgeon's restrictions exist. Three things contain that:
+  RED_FLAG still runs on regex before planning (D5); the planner prompt
+  states most-restrictive-first as a justified default and inversions are
+  logged to the trace; and ``compliance_check`` re-verifies the finished
+  answer against every extracted constraint regardless of run order
+  (src/agents/compliance.py) — after the fact rather than by construction.
+* ``answer_question(question, history=None)`` resolves a follow-up against
+  prior turns BEFORE routing (src/conversation.py). Without it "what about my
+  knee?" reaches the router with no referent and collapses to CLARIFY.
   History is deliberately NOT injected into specialist prompts: they answer
-  only from retrieved corpus evidence (§7.1), and the router/RED_FLAG gate
-  both need a complete standalone question to work as tuned.
-* ``peer_consult`` is the agent-to-agent BACK-channel, running once after the
-  chain and before synthesis: if a specialist needed something only another
-  specialist could answer (e.g. the trainer unsure whether a movement is
-  within post-op restrictions), that question is put to the named specialist
-  and the reply joins the synthesis evidence. Capped at MAX_CONSULT_ROUNDS=1
-  and implemented as a straight-through node rather than a cyclic edge, so
-  the "cannot loop" property above still holds and the token budget stays
-  bounded.
-* Every node captures its own errors into state instead of raising; one failing
-  agent never crashes the graph — conditional edges route to fallback_handler.
-* On the TEAM route, specialists chain most-restrictive-first — surgeon, then
-  PT, then trainer, then nutritionist last — but only the ones whose cues
-  actually fired in ``route_scores`` are consulted (D4, generalized to four
-  agents). Each downstream specialist receives the upstream drafts, plus
-  their *structured* constraints (src/agents/constraints.py), as
-  ``peer_context``.
+  only from retrieved corpus evidence (§7.1), and the router and RED_FLAG gate
+  both need a complete standalone question.
+* ``peer_consult`` is the agent-to-agent back-channel: one specialist may put
+  a direct question to another after the chain and before synthesis. Capped at
+  MAX_CONSULT_ROUNDS=1, straight-through rather than cyclic.
+* Specialists can call tools (D29, src/tools/) — deterministic calculators, a
+  re-query against their OWN collection, and PubMed gated to the case where
+  their own retrieval came back empty. See agents/base.py.
+* Every node captures its own errors into state instead of raising; one
+  failing agent never crashes the graph.
 * RED_FLAG never touches an LLM: canned response, appended in code (D5, §7.3).
 * Every question is scanned for prompt injection / SQL injection / PII before
-  it reaches the router, and every answer is scanned once more before it's
-  returned (src/security/guardrails.py) — a violation short-circuits the
-  whole graph, same posture as RED_FLAG.
+  it reaches the router, and every answer once more before return
+  (src/security/guardrails.py).
 * The standing disclaimer (§7.2) is a code constant appended by the terminal
   nodes — never left to the LLM.
 
@@ -86,7 +92,9 @@ from src.agents.peer_consult import (  # noqa: E402
     detect_peer_question,
     format_peer_exchange,
 )
+from src.agents.compliance import COMPLIANCE_WARNING, check_compliance  # noqa: E402
 from src.conversation import resolve_followup  # noqa: E402
+from src.planner import plan_consultation, violates_restrictiveness  # noqa: E402
 from src.security.guardrails import scan_input, scan_output  # noqa: E402
 from src.eval.tracing import init_langsmith_tracing  # noqa: E402
 
@@ -199,6 +207,10 @@ class TeamState(TypedDict, total=False):
 
     # Bounded agent-to-agent back-channel (src/agents/peer_consult.py): one
     # specialist may ask another a direct question after the chain runs.
+    plan: list             # LM-chosen agent order (D28), e.g. ["surgeon","pt"]
+    plan_index: int        # how far through `plan` execution has got
+    compliance: dict       # check_compliance() verdict on the final answer
+
     peer_question: dict    # {"from", "to", "question"}
     peer_answer: dict      # SpecialistAgent.consult() output from the asked agent
     consult_rounds: int    # capped at MAX_CONSULT_ROUNDS -- the graph cannot loop
@@ -238,107 +250,94 @@ def route_question(state: TeamState) -> dict:
     }
 
 
-def consult_surgeon(state: TeamState) -> dict:
-    # Most-restrictive voice goes first on TEAM (D4, generalized): no upstream
-    # peer_context to receive, but its own constraints get extracted for the
-    # specialists that follow.
-    result = _SURGEON.consult(state["question"])
-    constraints = extract_constraints(result["answer"]) if _ok(result) else []
-    note = result["error"] or (
-        f"{len(result['sources'])} source(s), {len(constraints)} constraint(s) extracted"
-    )
-    return {
-        "surgeon_result": result,
-        "surgeon_constraints": constraints,
-        "execution_trace": [f"consult_surgeon: {note}"],
-    }
-
-
-def consult_pt(state: TeamState) -> dict:
-    # Agent-to-agent handoff: on TEAM, if the surgeon already weighed in, its
-    # structured constraints + draft ride along as peer_context (D4).
-    peer = None
-    surgeon = state.get("surgeon_result")
-    if state.get("route") == TEAM and _ok(surgeon):
-        peer = (
-            format_constraints_block(state.get("surgeon_constraints") or [], "SURGEON")
-            + surgeon["answer"]
-        )
-    result = _PT.consult(state["question"], peer_context=peer)
-    constraints = extract_constraints(result["answer"]) if _ok(result) else []
-    note = result["error"] or (
-        f"{len(result['sources'])} source(s)"
-        + (", with surgeon draft as peer_context" if peer else "")
-    )
-    return {
-        "pt_result": result,
-        "pt_constraints": constraints,
-        "execution_trace": [f"consult_pt: {note}"],
-    }
-
-
-def consult_trainer(state: TeamState) -> dict:
-    blocks = []
-    surgeon, pt = state.get("surgeon_result"), state.get("pt_result")
-    if state.get("route") == TEAM and _ok(surgeon):
-        blocks.append(
-            format_constraints_block(state.get("surgeon_constraints") or [], "SURGEON")
-            + surgeon["answer"]
-        )
-    if state.get("route") == TEAM and _ok(pt):
-        blocks.append(
-            format_constraints_block(state.get("pt_constraints") or [], "PT")
-            + pt["answer"]
-        )
-    peer = "\n\n".join(blocks) or None
-    result = _TRAINER.consult(state["question"], peer_context=peer)
-    note = result["error"] or (
-        f"{len(result['sources'])} source(s)"
-        + (f", with {len(blocks)} upstream draft(s) as peer_context" if blocks else "")
-    )
-    return {
-        "trainer_result": result,
-        "execution_trace": [f"consult_trainer: {note}"],
-    }
-
-
-def consult_nutritionist(state: TeamState) -> dict:
-    blocks = []
-    surgeon, pt, tr = state.get("surgeon_result"), state.get("pt_result"), state.get("trainer_result")
-    if state.get("route") == TEAM and _ok(surgeon):
-        blocks.append(
-            format_constraints_block(state.get("surgeon_constraints") or [], "SURGEON")
-            + surgeon["answer"]
-        )
-    if state.get("route") == TEAM and _ok(pt):
-        blocks.append(
-            format_constraints_block(state.get("pt_constraints") or [], "PT")
-            + pt["answer"]
-        )
-    if state.get("route") == TEAM and _ok(tr):
-        blocks.append(
-            "GYM TRAINER RECOMMENDATIONS:\n" + tr["answer"]
-        )
-    peer = "\n\n".join(blocks) or None
-    result = _NUTRITIONIST.consult(state["question"], peer_context=peer)
-    constraints = extract_constraints(result["answer"]) if _ok(result) else []
-    note = result["error"] or (
-        f"{len(result['sources'])} source(s)"
-        + (f", with {len(blocks)} upstream draft(s) as peer_context" if blocks else "")
-    )
-    return {
-        "nutrition_result": result,
-        "nutrition_constraints": constraints,
-        "execution_trace": [f"consult_nutritionist: {note}"],
-    }
-
-
 _AGENT_BY_KEY = {
     "surgeon": ("surgeon_result", lambda: _SURGEON),
     "pt": ("pt_result", lambda: _PT),
     "trainer": ("trainer_result", lambda: _TRAINER),
     "nutrition": ("nutrition_result", lambda: _NUTRITIONIST),
 }
+
+# key -> (constraints state field, label used in the peer_context block)
+_CONSTRAINT_FIELD = {
+    "surgeon": ("surgeon_constraints", "SURGEON"),
+    "pt": ("pt_constraints", "PHYSICAL THERAPIST"),
+    "trainer": (None, "GYM TRAINER"),
+    "nutrition": ("nutrition_constraints", "NUTRITIONIST"),
+}
+
+
+def plan_consultation_node(state: TeamState) -> dict:
+    """Ask the small LM which specialists to consult, and in what order (D28).
+
+    Replaces the fixed surgeon->PT->trainer->nutrition edge chain. Falls back
+    to the router's own scores, ordered most-restrictive-first, if planning
+    fails — i.e. exactly the pre-D28 behavior.
+    """
+    plan = plan_consultation(state["question"], state.get("route_scores"))
+    agents = plan["agents"]
+    trace = [f"plan_consultation: {' -> '.join(agents) or '(none)'} ({plan['method']}) - {plan['reasoning']}"]
+
+    # The LM owns ordering now, so an inversion is legal — but it means a
+    # restrictive specialist's limits arrived too late to bind someone
+    # downstream. Surface it; compliance_check is what actually catches the
+    # consequences (see planner.py's module docstring).
+    inversions = violates_restrictiveness(agents)
+    if inversions:
+        trace.append(
+            "plan_consultation: WARNING ordering inversion — "
+            + "; ".join(inversions)
+            + " (constraints may not have bound downstream advice; compliance_check will verify)"
+        )
+    return {"plan": agents, "plan_index": 0, "execution_trace": trace}
+
+
+def consult_next(state: TeamState) -> dict:
+    """Consult the next specialist in the plan.
+
+    One generic node replaces the four hardcoded consult_* nodes, because the
+    sequence is now data (state["plan"]) rather than graph topology. Every
+    specialist still receives all prior drafts plus their extracted
+    constraints as binding peer_context.
+    """
+    plan = state.get("plan") or []
+    idx = state.get("plan_index", 0)
+    if idx >= len(plan):
+        return {}
+
+    key = plan[idx]
+    field, agent_getter = _AGENT_BY_KEY[key]
+
+    # Accumulate every upstream draft, constraints first so restrictions lead.
+    blocks = []
+    for prior in plan[:idx]:
+        prior_field, _ = _AGENT_BY_KEY[prior]
+        prior_result = state.get(prior_field)
+        if not _ok(prior_result):
+            continue
+        cfield, label = _CONSTRAINT_FIELD[prior]
+        block = format_constraints_block(state.get(cfield) or [], label) if cfield else ""
+        blocks.append(block + prior_result["answer"])
+    peer = "\n\n".join(blocks) or None
+
+    result = agent_getter().consult(state["question"], peer_context=peer)
+    constraints = extract_constraints(result["answer"]) if _ok(result) else []
+
+    tools = result.get("tools_used") or []
+    note = result["error"] or (
+        f"{len(result['sources'])} source(s)"
+        + (f", {len(blocks)} upstream draft(s) as peer_context" if blocks else "")
+        + (f", tools={tools}" if tools else "")
+    )
+
+    update = {
+        field: result,
+        "plan_index": idx + 1,
+        "execution_trace": [f"consult_{key}: {note}"],
+    }
+    cfield, _ = _CONSTRAINT_FIELD[key]
+    if cfield:
+        update[cfield] = constraints
+    return update
 
 
 def peer_consult(state: TeamState) -> dict:
@@ -456,10 +455,36 @@ def synthesize_team_answer(state: TeamState) -> dict:
         answer = "\n\n".join(drafts)
         trace = f"synthesize_team_answer: LLM failed ({exc}); returning raw drafts"
 
+    traces = [trace]
+
+    # Since D28 the LM chooses run order, so a restrictive specialist's limits
+    # may have arrived after the specialist they should have bound. Re-check
+    # the finished answer against EVERY constraint anyone stated, whatever the
+    # order was. This is the after-the-fact replacement for what D4's fixed
+    # ordering used to guarantee by construction.
+    all_constraints = {
+        name: state[field]
+        for name, field in (
+            ("orthopedic_surgeon", "surgeon_constraints"),
+            ("physical_therapist", "pt_constraints"),
+            ("nutritionist", "nutrition_constraints"),
+        )
+        if state.get(field)
+    }
+    verdict = check_compliance(answer, all_constraints)
+    if verdict["checked"] and not verdict["compliant"]:
+        answer += COMPLIANCE_WARNING.format(details=verdict["details"])
+        traces.append(f"compliance_check: VIOLATION - {verdict['details']}")
+    elif verdict["checked"]:
+        traces.append("compliance_check: no constraint conflicts found")
+    elif verdict["details"]:
+        traces.append(f"compliance_check: not run ({verdict['details']})")
+
     return {
         "final_answer": answer + DISCLAIMER,
         "sources": sources,
-        "execution_trace": [trace],
+        "compliance": verdict,
+        "execution_trace": traces,
     }
 
 
@@ -524,75 +549,35 @@ def fallback_handler(state: TeamState) -> dict:
 
 
 def _route_selector(state: TeamState) -> str:
+    """RED_FLAG and CLARIFY terminate before planning; everything else plans."""
     route = state["route"]
-    if route == TEAM:
-        scores = state.get("route_scores") or {}
-        if scores.get("surgeon", 0) > 0:
-            return "consult_surgeon"
-        if scores.get("pt", 0) > 0:
-            return "consult_pt"
-        if scores.get("trainer", 0) > 0:
-            return "consult_trainer"
-        if scores.get("nutrition", 0) > 0:
-            return "consult_nutritionist"
-        return "consult_trainer"
-    return {
-        PT_ONLY: "consult_pt",
-        TRAINER_ONLY: "consult_trainer",
-        SURGEON: "consult_surgeon",
-        NUTRITION_ONLY: "consult_nutritionist",
-        RED_FLAG: "safety_response",
-        CLARIFY: "ask_clarification",
-    }[route]
+    if route == RED_FLAG:
+        return "safety_response"
+    if route == CLARIFY:
+        return "ask_clarification"
+    return "plan_consultation"
 
 
-def _after_surgeon(state: TeamState) -> str:
-    if state.get("route") == TEAM:
-        scores = state.get("route_scores") or {}
-        if scores.get("pt", 0) > 0:
-            return "consult_pt"
-        if scores.get("trainer", 0) > 0:
-            return "consult_trainer"
-        if scores.get("nutrition", 0) > 0:
-            return "consult_nutritionist"
-    return "synthesize" if _ok(state.get("surgeon_result")) else "fallback"
+def _after_plan(state: TeamState) -> str:
+    """An empty plan means nobody to ask -- go straight to fallback rather
+    than synthesizing from nothing."""
+    return "consult_next" if state.get("plan") else "fallback"
 
 
-def _after_pt(state: TeamState) -> str:
-    if state.get("route") == TEAM:
-        scores = state.get("route_scores") or {}
-        if scores.get("trainer", 0) > 0:
-            return "consult_trainer"
-        if scores.get("nutrition", 0) > 0:
-            return "consult_nutritionist"
-        ok = _ok(state.get("pt_result")) or _ok(state.get("surgeon_result"))
-        return "synthesize" if ok else "fallback"
-    return "synthesize" if _ok(state.get("pt_result")) else "fallback"
+def _after_consult(state: TeamState) -> str:
+    """Continue through the plan, then hand off to the peer-consult pass.
 
+    Terminates on plan_index reaching len(plan); planner.py caps and
+    de-duplicates the plan, so this cycle runs at most once per specialist.
+    """
+    plan = state.get("plan") or []
+    if state.get("plan_index", 0) < len(plan):
+        return "consult_next"
 
-def _after_trainer(state: TeamState) -> str:
-    if state.get("route") == TEAM:
-        scores = state.get("route_scores") or {}
-        if scores.get("nutrition", 0) > 0:
-            return "consult_nutritionist"
-    if (
-        _ok(state.get("trainer_result"))
-        or _ok(state.get("pt_result"))
-        or _ok(state.get("surgeon_result"))
-    ):
-        return "synthesize"
-    return "fallback"
-
-
-def _after_nutritionist(state: TeamState) -> str:
-    if (
-        _ok(state.get("nutrition_result"))
-        or _ok(state.get("trainer_result"))
-        or _ok(state.get("pt_result"))
-        or _ok(state.get("surgeon_result"))
-    ):
-        return "synthesize"
-    return "fallback"
+    any_usable = any(
+        _ok(state.get(_AGENT_BY_KEY[key][0])) for key in plan if key in _AGENT_BY_KEY
+    )
+    return "peer_consult" if any_usable else "fallback"
 
 
 @lru_cache(maxsize=1)
@@ -608,10 +593,8 @@ def _get_clinical_graph():
 def _get_graph():
     g = StateGraph(TeamState)
     g.add_node("route_question", route_question)
-    g.add_node("consult_surgeon", consult_surgeon)
-    g.add_node("consult_pt", consult_pt)
-    g.add_node("consult_trainer", consult_trainer)
-    g.add_node("consult_nutritionist", consult_nutritionist)
+    g.add_node("plan_consultation", plan_consultation_node)
+    g.add_node("consult_next", consult_next)
     g.add_node("peer_consult", peer_consult)
     g.add_node("synthesize_team_answer", synthesize_team_answer)
     g.add_node("safety_response", safety_response)
@@ -619,55 +602,34 @@ def _get_graph():
     g.add_node("fallback_handler", fallback_handler)
 
     g.add_edge(START, "route_question")
+    # RED_FLAG and CLARIFY still short-circuit BEFORE any planning happens:
+    # an emergency must never depend on an LM's planning decision (D5).
     g.add_conditional_edges(
         "route_question",
         _route_selector,
         {
-            "consult_pt": "consult_pt",
-            "consult_trainer": "consult_trainer",
-            "consult_surgeon": "consult_surgeon",
-            "consult_nutritionist": "consult_nutritionist",
+            "plan_consultation": "plan_consultation",
             "safety_response": "safety_response",
             "ask_clarification": "ask_clarification",
         },
     )
     g.add_conditional_edges(
-        "consult_surgeon",
-        _after_surgeon,
+        "plan_consultation",
+        _after_plan,
+        {"consult_next": "consult_next", "fallback": "fallback_handler"},
+    )
+    # The one cycle in the graph. Bounded by len(plan), which planner.py caps
+    # at MAX_PLAN_LENGTH (the size of the specialist roster) and de-duplicates,
+    # so it can iterate at most once per specialist.
+    g.add_conditional_edges(
+        "consult_next",
+        _after_consult,
         {
-            "consult_pt": "consult_pt",
-            "consult_trainer": "consult_trainer",
-            "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "peer_consult",
+            "consult_next": "consult_next",
+            "peer_consult": "peer_consult",
             "fallback": "fallback_handler",
         },
     )
-    g.add_conditional_edges(
-        "consult_pt",
-        _after_pt,
-        {
-            "consult_trainer": "consult_trainer",
-            "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "peer_consult",
-            "fallback": "fallback_handler",
-        },
-    )
-    g.add_conditional_edges(
-        "consult_trainer",
-        _after_trainer,
-        {
-            "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "peer_consult",
-            "fallback": "fallback_handler",
-        },
-    )
-    g.add_conditional_edges(
-        "consult_nutritionist",
-        _after_nutritionist,
-        {"synthesize": "peer_consult", "fallback": "fallback_handler"},
-    )
-    # peer_consult always falls through to synthesis -- it is a single bounded
-    # pass, never a cycle, so the DAG's "cannot loop" property still holds.
     g.add_edge("peer_consult", "synthesize_team_answer")
     g.add_edge("synthesize_team_answer", END)
     g.add_edge("safety_response", END)

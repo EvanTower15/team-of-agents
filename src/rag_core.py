@@ -44,7 +44,21 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 CHROMA_PERSIST_DIR = str(_REPO_ROOT / "chroma_db")
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# Migrated 2026-08-07 off `llama-3.3-70b-versatile`, which Groq retires on
+# 2026-08-16 (D27). gpt-oss-120b is Groq's own recommended replacement and,
+# unlike the model it replaces, supports tool calling -- which is what makes
+# the specialist tool loop in agents/base.py possible at all.
+#
+# Operational note: gpt-oss models emit reasoning tokens before content, so
+# they cost more per call than the model they replace. Anything that sets
+# max_tokens must leave headroom or `content` comes back empty. Classification
+# work should pass reasoning_effort="low" (measured: 43 vs 278 completion
+# tokens for an identical answer) -- see GROQ_SMALL_MODEL below.
+GROQ_MODEL = "openai/gpt-oss-120b"
+
+# Small, cheap model for classification/planning: routing and agent selection.
+# Also a `llama-3.1-8b-instant` replacement -- that one is retired 2026-08-16 too.
+GROQ_SMALL_MODEL = "openai/gpt-oss-20b"
 
 _SUPPORTED_EXTS = {".pdf", ".txt", ".md"}
 
@@ -68,17 +82,44 @@ def _get_embeddings():
 
 
 @lru_cache(maxsize=1)
-def get_llm():
-    """Cached ChatGroq client shared by every agent and the synthesizer."""
+def _require_key() -> str:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise EnvironmentError(
             "GROQ_API_KEY not found. Copy .env.example to .env and paste your "
             "free key from https://console.groq.com (see PROJECT_PLAN.md section 0)."
         )
+    return api_key
+
+
+@lru_cache(maxsize=1)
+def get_llm():
+    """Cached ChatGroq client shared by every agent and the synthesizer."""
     from langchain_groq import ChatGroq
 
-    return ChatGroq(model=GROQ_MODEL, temperature=0.2, groq_api_key=api_key)
+    return ChatGroq(model=GROQ_MODEL, temperature=0.2, groq_api_key=_require_key())
+
+
+@lru_cache(maxsize=1)
+def get_small_llm():
+    """Cached small-model client for classification and planning.
+
+    `reasoning_effort="low"` matters here: gpt-oss spends completion tokens on
+    reasoning before content, and for a routing decision the extra deliberation
+    buys nothing (measured: 43 vs 278 completion tokens, same answer). On a
+    free tier whose daily cap this project has hit repeatedly, that is the
+    difference between a full test battery fitting in budget and not.
+    """
+    from langchain_groq import ChatGroq
+
+    # `reasoning_effort` is a first-class ChatGroq parameter -- passing it via
+    # model_kwargs raises a pydantic ValidationError at construction time.
+    return ChatGroq(
+        model=GROQ_SMALL_MODEL,
+        temperature=0,
+        groq_api_key=_require_key(),
+        reasoning_effort="low",
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,9 +249,19 @@ def retrieve(question: str, collection_name: str, k: int = 4) -> List:
     into an ``error`` field so the orchestrator graph never crashes).
     """
     if _collection_count(collection_name) == 0:
-        agent_flag = {"pt_docs": "pt", "trainer_docs": "trainer"}.get(
-            collection_name, "<agent>"
-        )
+        # Derived from ingest.py's AGENT_CORPORA rather than a second hardcoded
+        # map -- the previous copy went stale when the surgeon and nutrition
+        # collections were added, so their errors said "--agent <agent>".
+        # Imported lazily to avoid a circular import at module load.
+        try:
+            from src.ingest import AGENT_CORPORA
+
+            agent_flag = next(
+                (flag for flag, (_, coll) in AGENT_CORPORA.items() if coll == collection_name),
+                "<agent>",
+            )
+        except Exception:
+            agent_flag = "<agent>"
         raise FileNotFoundError(
             f"Knowledge base '{collection_name}' has not been built yet. "
             f"Run: python -m src.ingest --agent {agent_flag}"
