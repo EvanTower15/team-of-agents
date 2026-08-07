@@ -5,30 +5,13 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
-> **Status: FULL PRODUCTION EXTENSION COMPLETE (2026-07-30) — 4-agent MAS with Sports Nutritionist, GraphRAG, Multimodal Visual Search, Security Guardrails, Unit Economics, E2E CLI, and High-Risk Patient Safety LLM-as-a-Judge Evaluation. Extended 2026-07-31 with multi-session chat persistence (Phase 5b).**
->
-> *(As each phase completes, append a dated "Phase N results" block directly below this
-> line, newest first. Keep every result block forever — they are the project memory.)*
->
-> **Phase 5b results (2026-07-31)** — Evan. Chat history is now **durable and
-> multi-conversation**: `src/database.py` (§5.5, D13) persists `chat_sessions` +
-> `chat_transcripts` to `data/chat_history.db` (SQLAlchemy/SQLite, WAL + FK pragmas,
-> gitignored, `CHAT_DB_URL`-overridable), ported from opim-5517's HW8 persistence module and
-> extended with the multi-agent render metadata this project needs. `app.py` grew a sidebar
-> **Conversations** block — active chat (title · turns · tokens · accumulated Groq spend),
-> "New chat", a picker over the 25 most recently active conversations, explicit Open, and
-> delete — so a user can run several recovery scenarios in parallel (each browser tab holds
-> its own session) and reopen any of them after a reload with badges, sources, binding
-> restrictions, and the debug trace intact. Conversations title themselves from the first
-> question. Persistence deliberately did **not** touch the §5.4 contract or the agents: each
-> question still stands alone (see §7 point 4). `tests/test_database.py` adds 14 offline
-> tests; `AppTest` verified the five UI flows end-to-end headlessly (42 checks, 0 exceptions);
-> full suite 56 passed.
 > **Status: REAL VISION SUPPORT ADDED (2026-08-02)** — the two previously-fake "multimodal"
 > claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
 > users can upload a photo that a real vision model describes. Built on top of the same-day
 > audit + integrity fix pass (block below), which made the rest of the 2026-07-30 claims
-> true.
+> true. Chat history became **durable and multi-conversation** on 2026-07-31 (Phase 5b, §5.5,
+> D23), and the 4-agent MAS itself — Sports Nutritionist, GraphRAG, visual search, security
+> guardrails, unit economics, E2E CLI, LLM-as-a-judge evaluation — landed 2026-07-30.
 
 ---
 
@@ -210,6 +193,28 @@ TPD limit purely on live verification runs, which surfaces as `RateLimitError` m
 > `pytest tests/` 38/42 passing (4 failures are a live Groq daily-quota hit mid-session, not
 > code defects — see point 1); router battery 16/16 live; `test_e2e_security_guardrail_blocking`
 > confirms the guardrail wiring works end-to-end through the real orchestrator, not a mock.
+>
+> **Phase 5b results (2026-07-31)** — Evan. Chat history is now **durable and
+> multi-conversation**: `src/database.py` (§5.5, D23) persists `chat_sessions` +
+> `chat_transcripts` to `data/chat_history.db` (SQLAlchemy/SQLite, WAL + FK pragmas,
+> gitignored, `CHAT_DB_URL`-overridable), ported from opim-5517's HW8 persistence module and
+> extended with the multi-agent render metadata this project needs. `app.py` grew a sidebar
+> **Conversations** block — active chat (title · turns · tokens · accumulated Groq spend),
+> "New chat", a picker over the 25 most recently active conversations, explicit Open, and
+> delete — so a user can run several recovery scenarios in parallel (each browser tab holds
+> its own session) and reopen any of them after a reload with badges, sources, binding
+> restrictions, and the debug trace intact. Conversations title themselves from the first
+> question. Persistence deliberately did **not** touch the §5.4 contract or the agents: each
+> question still stands alone (see §7 point 4). `tests/test_database.py` adds 14 offline
+> tests; `AppTest` verified the five UI flows end-to-end headlessly (42 checks, 0 exceptions);
+> full suite 56 passed.
+>
+> **Overlap with the 2026-08-02 audit pass, for the record:** this branch and that pass
+> independently fixed three of the same things — the missing `data/nutrition/` rows in
+> `data/SOURCES.md`, `fallback_handler` dropping nutrition errors, and the 3-agent
+> orchestrator docstring/diagram. The duplicate work was reconciled when main was merged into
+> the persistence branch on 2026-08-07; the audit pass's versions were kept where they went
+> further (cached visual search, real session-cost computation, the D15 fallback refinement).
 >
 > **Phase 6+ Production System results (2026-07-30)** — Evan, Ben, James. Complete enterprise-grade expansion of the Recovery Team MAS:
 > 1. Added **Sports Nutritionist Agent** 🥗 (`src/agents/nutritionist.py` + `data/nutrition/`) for post-op nutrition, protein targets, and tendon/ligament healing.
@@ -990,7 +995,7 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
   route chip/badge/sources out, zero exceptions. Still worth a human clicking through it once
   in an actual browser before the video shoot, since `AppTest` doesn't render CSS/layout.
 
-### Phase 5b — Multi-session chat persistence — **Evan** *(follow-up to Phase 5; D13)*
+### Phase 5b — Multi-session chat persistence — **Evan** *(follow-up to Phase 5; D23)*
 
 - [x] `src/database.py` (§5.5): `chat_sessions` + `chat_transcripts` on SQLAlchemy/SQLite,
       WAL + `foreign_keys=ON` pragmas per connection, engine cached per URL so Streamlit's
@@ -1070,7 +1075,6 @@ Add rows as edge cases emerge (log the addition in §10).
 | D10 | 2026-07-14 | Synthesis conflict priority: surgeon wins on post-op/hardware/weight-bearing precautions, PT wins on everything else involving pain/safety/rehab | Generalizes D4's "PT wins on safety" rule now that there are two clinical voices instead of one; each has a distinct area where its restriction should override the others |
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
 | D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
-| D13 | 2026-07-31 | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 | D13 | 2026-08-02 | Eval-suite judge failures now score 0/`ERROR` instead of a hardcoded perfect score | The previous fail-open behavior meant any infra failure (missing key, rate limit, malformed JSON) silently reported a fabricated 5/5 safety score with `PASS: True` — a claimed "100% pass rate" that was true by construction, not by the system being safe. For health-adjacent software this is the opposite of D5's "safety must not depend on LLM behavior" applied to the safety tests themselves |
 | D14 | 2026-08-02 | GraphRAG's "no match → default to ACL Reconstruction" behavior removed; now returns no match at all | The default meant every synthesized answer, for any question, got ACL-specific contraindications silently stapled onto it regardless of relevance — a direct violation of §7.1's grounding rule. No match now means no injection, consistent with every other specialist's "say you don't have material on it" convention |
 | D15 | 2026-08-02 | `keyword_route_fallback` (added by James the same day as the nutrition merge) now only fires when the LLM's own confidence is below threshold, never to override a confident CLARIFY | It was re-resolving confidently-CLARIFY questions like "What's the best gym?" to a wrong single-specialist guess off one loose keyword match ("gym"), undoing a routing-accuracy gap that had already been found and fixed once (see the Phase 4c results block). A confident CLARIFY means the LLM already looked at the whole question and judged it too vague — a single keyword shouldn't override that |
@@ -1081,6 +1085,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D20 | 2026-08-02 | Visual search is **hybrid**: CLIP image-embedding similarity as the primary signal, plus a small filename-keyword bonus | Pure CLIP unlocked ~94% of the image corpus that filename matching could never reach (most images are PDF-extracted with opaque names like `p62_img1.jpg`; verified that a squat *photo* with that exact filename now ranks #1 for "squat exercise form"). But CLIP is trained on natural photographs and measurably under-ranks dense text-heavy instructional diagrams — a labeled "Squats for strengthening your leg muscles" infographic scored below rank 20 for the same query, a case the old filename search *would* have caught. The bonus is capped well below the typical CLIP score spread, so it recovers those diagrams (that one moved to rank #2) without displacing genuine visual matches |
 | D21 | 2026-08-02 | Gemini model pinned to the `gemini-flash-latest` **alias**, not a specific version | Google retires specific Gemini versions for new users aggressively — verified live that `gemini-2.5-flash` already returns "no longer available to new users" on a key created the same day. A pinned version would have shipped broken. The alias tracks whatever current flash model the account can actually reach. (Contrast with Groq, where the reverse discipline applies — see the `llama-3.3-70b-versatile` Aug 16 deprecation note in the audit results block) |
 | D22 | 2026-08-02 | The `llama-3.3-70b-versatile` → replacement-model migration is **deliberately deferred**, not overlooked — flagged prominently at the top of this document instead | Ben's call: land the audit-integrity fixes and the vision work first while that context was fresh, rather than interleave a model swap that needs its own full battery re-verification. The risk of deferring is real and bounded — a hard external cutoff on **2026-08-16**, after which the app stops working entirely — so it is recorded as an explicit deadline callout above §0 rather than left as a to-do buried in a results block. Whoever picks it up should treat it as a verification task, not a two-line edit: router accuracy is model-dependent and two routing regressions have already been caught only by re-running the §9 battery |
+| D23 | 2026-07-31 *(renumbered from D13 on 2026-08-07 — the 2026-08-02 audit pass, developed in parallel on `main`, had already claimed D13–D22)* | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 
 ---
 

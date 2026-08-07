@@ -321,9 +321,9 @@ did. A model that says `TEAM` but names fewer than 2 specialists is treated as i
 and defaults to consulting all of them, rather than silently under-chaining.
 
 **Stage 3 — a deterministic keyword net catches what the LLM won't commit to.**
-`keyword_route_fallback()` runs whenever the classifier is unsure (confidence below 0.50),
-answers `CLARIFY`, or fails outright (no key, network error). It checks, in order: a short
-list of high-risk phrases (`"starvation diet"` → nutritionist, `"heavy squatting"` → PT,
+`keyword_route_fallback()` runs when the classifier's own confidence is below 0.50, or when
+the call fails outright (no key, network error). It checks, in order: a short list of
+high-risk phrases (`"starvation diet"` → nutritionist, `"heavy squatting"` → PT,
 `"infection"` → RED_FLAG), then per-specialist keyword lists — two or more specialists
 matched means `TEAM`. A match reports `method: "rules"` at confidence 0.85; only if nothing
 matches does the route finally collapse to CLARIFY.
@@ -336,6 +336,14 @@ set, and that is no longer true. Note the design ordering, which is the interest
 the presentation: the keyword list sits *under* the classifier as a safety net, not *in front
 of* it as the primary decision-maker, which is exactly the arrangement D11 rejected. Regex
 went from being the router to being the floor.
+
+**It then had to be narrowed (D15).** As first written, the net also fired when the LLM
+returned `CLARIFY` *confidently* — so "What's the best gym?" matched the bare keyword "gym"
+and resolved to `TRAINER_ONLY`, re-breaking the exact accuracy gap §6 had already fixed once.
+A confident CLARIFY now stands: the classifier reasoned over the whole question, and a single
+keyword doesn't get to overrule it. The net only speaks when the classifier was itself unsure
+or absent. That is the useful lesson for the report — a fallback layer is only safe when it
+can't override a *confident* decision from the layer above it.
 
 **Trade-off, explicit:** routing is no longer free. Every non-RED_FLAG question now costs a
 Groq call and takes real latency, instead of resolving instantly from local keyword weights.
@@ -672,7 +680,7 @@ regex-era numbers for historical comparison.
 
 - **Location:** `src/database.py` (SQLAlchemy ORM over SQLite), wired into `app.py`'s sidebar.
   Ported from the opim-5517 coursework's HW8 "Relational Persistence" module and extended for
-  this project's multi-agent turns (decision D13).
+  this project's multi-agent turns (decision D23).
 - **The problem it solves:** chat history lived only in Streamlit's `session_state`, so a page
   reload erased the conversation. That made it impossible to compare two recovery scenarios, or
   to walk away and come back — and it made the demo feel like a toy.

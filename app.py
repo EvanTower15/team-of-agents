@@ -292,8 +292,6 @@ with st.sidebar:
     st.divider()
     with st.expander("Business unit economics (this session)"):
         try:
-            from src.business.unit_economics import VerticalStrategyMetrics
-            st.markdown("**Token Pricing Engine:** Groq `Llama-3.3-70B`")
             from src.business.unit_economics import CostCalculator, BudgetOverrunGuard, VerticalStrategyMetrics
 
             st.markdown("**Token pricing:** Groq `llama-3.3-70b-versatile`")
@@ -400,30 +398,22 @@ for msg in st.session_state.messages:
                     f"· ${meta.get('cost_usd', 0.0):.6f}"
                 )
 
-            # Reloaded turns skip the CLIP lookup -- see _messages_from_transcripts.
+            # Reloaded turns skip the CLIP lookup: it is a live image-embedding
+            # search over the whole visuals corpus, not part of the saved answer,
+            # so replaying it would cost one search per historical message on
+            # every rerun (see _messages_from_transcripts).
             if msg.get("from_history"):
                 st.caption("↩️ Reloaded from saved history — ask again to regenerate visual guides.")
             else:
                 try:
-                    from src.multimodal.clip_search import MultimodalVisualSearch
-                    visual_engine = MultimodalVisualSearch()
-                    matched_imgs = visual_engine.search_visuals(msg.get("content", ""), top_k=2)
+                    matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
                     if matched_imgs:
                         with st.expander("🖼️ Visual Guides & Diagrams"):
                             for img in matched_imgs:
                                 st.caption(f"**{img['title']}**")
                                 st.image(img["file_path"], use_container_width=True)
-                except Exception:
-                    pass
-            try:
-                matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
-                if matched_imgs:
-                    with st.expander("🖼️ Visual Guides & Diagrams"):
-                        for img in matched_imgs:
-                            st.caption(f"**{img['title']}**")
-                            st.image(img["file_path"], use_container_width=True)
-            except Exception as exc:
-                st.caption(f"(visual search unavailable: {exc})")
+                except Exception as exc:
+                    st.caption(f"(visual search unavailable: {exc})")
 
 question = st.chat_input("Ask about an injury, rehab, or getting back into training...")
 

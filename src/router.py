@@ -22,18 +22,23 @@ Strategy (Phase 4c, D11 — supersedes the Phase 4/4b weighted-regex scorer):
        not depend on LLM behavior. This is the one place regex stays load-bearing.
     2. Everything else goes to the Groq/Llama classifier, which returns both the
        label and the specialist flags in one call.
-    3. If the LLM is unsure (confidence below CLARIFY_THRESHOLD), answers
-       CLARIFY, or is unavailable (no key, network error), routing drops to
+    3. If the LLM's own confidence is below CLARIFY_THRESHOLD, or the LLM is
+       unavailable (no key, network error), routing drops to
        ``keyword_route_fallback()`` — a deterministic keyword pass over
        HIGH_RISK_PATTERNS then SPECIALIST_KEYWORDS (two or more specialists
-       matched => TEAM), reported as method "rules" at confidence 0.85.
+       matched => TEAM), reported as method "rules" at confidence 0.85. A
+       *confident* CLARIFY is left alone (D15): the classifier read the whole
+       question and judged it too vague, so one loose keyword match must not
+       overturn it.
     4. Only if that finds nothing does the route collapse to CLARIFY. Never
        crashes, per the codebase's "never raise" convention.
 
 Step 3 was added after Phase 4c: the LLM-only design collapsed explicit
 questions to CLARIFY too eagerly (and, with no key set, collapsed *every*
 non-RED_FLAG question), so a small keyword net now sits under the classifier
-rather than in front of it. Note what this means operationally — without
+rather than in front of it. It over-corrected at first — firing even on a
+confident CLARIFY, which re-broke "What's the best gym?" — hence the D15
+narrowing described above. Note what this means operationally: without
 GROQ_API_KEY the router still routes, deterministically, instead of asking
 everyone to rephrase.
 
