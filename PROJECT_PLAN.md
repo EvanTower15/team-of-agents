@@ -5,6 +5,52 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
+> **Status: CONVERSATION MEMORY + AGENT-TO-AGENT BACK-CHANNEL (2026-08-07)** — follow-ups
+> now resolve against prior turns instead of being answered from scratch, and specialists
+> can ask each other direct questions mid-run. Full suite 55/55 green. See the results
+> block below.
+>
+> **Conversation memory + peer consult results (2026-08-07)** — Ben. Two gaps closed:
+>
+> 1. **Conversations persisted but were never reasoned over.** Evan's Phase 5b work changed
+>    what was *stored*, not what was *thought about* — every question still went to the
+>    router bare, so "what about my knee?" had no referent and collapsed to CLARIFY.
+>    Fixed by resolving the follow-up against prior turns ONCE, before routing
+>    (`src/conversation.py`); `answer_question(question, history=None)` keeps the old
+>    signature working (D23). **Verified live:** *"What about my knee?"* →
+>    *"What are the current limitations and precautions I should take with my right knee
+>    6 weeks after ACL reconstruction...?"*
+>    **The safety payoff is concrete (D24):** *"Give me a 3-day beginner strength program"*
+>    routes `TRAINER_ONLY` with no history, but `TEAM` (surgeon+PT+trainer) once the
+>    conversation has established a 6-week-old ACL reconstruction — the same question, now
+>    bounded by post-op restrictions instead of answered as though the patient were healthy.
+> 2. **Agent-to-agent was one-directional.** The chain passed work forward
+>    (Surgeon→PT→Trainer→Nutritionist via `peer_context`) but a specialist that hit the edge
+>    of its scope could only hedge. `src/agents/peer_consult.py` adds a back-channel
+>    (D25). **Verified live** — real trace: `peer_consult: trainer -> surgeon: "What are the
+>    post-operative weight-bearing status and range of motion restrictions for a patient
+>    6 weeks post ACL reconstruction that would impact the use of barbell squats and leg
+>    press?" (3 source(s))`. Bounded at `MAX_CONSULT_ROUNDS=1` and built as a
+>    straight-through node, so the DAG's documented "cannot loop" property still holds.
+>
+> **Bug found and fixed during that testing (D26):** an answer said *"Your nutritionist
+> recommends Protein (2.0g/kg)..."* when the nutritionist had never been consulted — the
+> content came from the GraphRAG reference block and synthesis invented the attribution.
+> Reference data is now labeled as such and carries no `[source: ...]` marker.
+>
+> **Also evaluated and rejected:** `llm-guard` for the security scanner. It resolves, but
+> would downgrade `transformers` 5.14.1 → 4.51.3 and `tokenizers` 0.22.2 → 0.21.4, which
+> `sentence-transformers` 5.7.0 depends on — that powers MiniLM retrieval for all four
+> agents *and* CLIP image search. Trading working RAG for a scanner (plus 37 packages
+> including all of spaCy and Presidio) is a bad deal. Nothing was installed; the dry-run
+> was read-only. `meta-llama/llama-prompt-guard-2-86m` is available on the Groq key as a
+> real classifier upgrade if wanted later, at the cost of one small call per question.
+>
+> Verification: `pytest tests/` **55 passed** (42 existing + 13 new covering
+> history-optionality, the bounded-round cap, and malformed/self-directed consult
+> rejection); two full live TEAM runs confirming the peer consult fires and the
+> attribution fix holds.
+>
 > **Status: REAL VISION SUPPORT ADDED (2026-08-02)** — the two previously-fake "multimodal"
 > claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
 > users can upload a photo that a real vision model describes. Built on top of the same-day
@@ -663,8 +709,16 @@ def classify(question: str) -> RouteDecision:
 ### 5.4 `src/orchestrator.py` (Phase 4, extended Phase 4b)
 
 ```python
-def answer_question(question: str) -> dict:
-    """Runs the LangGraph. Returns: {
+def answer_question(question: str, history: list[dict] | None = None) -> dict:
+    """Runs the LangGraph.
+
+    `history` (added 2026-08-07, D23) is the prior conversation as
+    [{"role": "user"|"assistant", "content": str}, ...]. OPTIONAL and defaults
+    to None, so every pre-existing caller keeps working unchanged. When given,
+    a follow-up is first resolved into a standalone question against those
+    turns (src/conversation.py) before routing.
+
+    Returns: {
       "final_answer": str,
       "route": str, "route_confidence": float,
       "agents_consulted": list[str],
@@ -780,9 +834,17 @@ This is health-adjacent software. Non-negotiables, enforced in code, not vibes:
    deliberately did NOT wire RED_FLAG to consult it (§11's other idea) — it stays
    deterministic/no-LLM per D5; blending in a surgeon lookup there is a separate decision
    for later, not bundled in silently.
-4. **No memory of the user in Phase A** — no PII stored; each question stands alone.
-   (Chat history in the Streamlit session is display-only.) Personalization is a Phase B+
-   discussion.
+4. **Conversation memory: within-conversation only, still no user profile.**
+   *(Revised 2026-08-07 — D23. Originally: "No memory of the user in Phase A — each
+   question stands alone; chat history is display-only.")* A follow-up is now resolved
+   against **prior turns of the same conversation** before routing
+   (`src/conversation.py`), because "what about my knee?" reaching the router with no
+   referent collapsed to CLARIFY — conversations were being persisted but never reasoned
+   over. What did **not** change: no cross-conversation user profile, no PII stored, no
+   personalization that outlives a thread. History is used to make the *current* question
+   complete, and is deliberately never injected into specialist prompts — they still
+   answer only from retrieved corpus evidence (§7.1), and RED_FLAG still evaluates a
+   complete standalone question.
 5. **Corpus licensing** — prefer US-government public-domain sources (see §8 Phases 2–3);
    every file in `data/` gets a line in `data/SOURCES.md` (URL, date fetched, license).
    No pirated textbooks, no wholesale scraping of copyrighted commercial sites.
@@ -1001,6 +1063,10 @@ Add rows as edge cases emerge (log the addition in §10).
 | D20 | 2026-08-02 | Visual search is **hybrid**: CLIP image-embedding similarity as the primary signal, plus a small filename-keyword bonus | Pure CLIP unlocked ~94% of the image corpus that filename matching could never reach (most images are PDF-extracted with opaque names like `p62_img1.jpg`; verified that a squat *photo* with that exact filename now ranks #1 for "squat exercise form"). But CLIP is trained on natural photographs and measurably under-ranks dense text-heavy instructional diagrams — a labeled "Squats for strengthening your leg muscles" infographic scored below rank 20 for the same query, a case the old filename search *would* have caught. The bonus is capped well below the typical CLIP score spread, so it recovers those diagrams (that one moved to rank #2) without displacing genuine visual matches |
 | D21 | 2026-08-02 | Gemini model pinned to the `gemini-flash-latest` **alias**, not a specific version | Google retires specific Gemini versions for new users aggressively — verified live that `gemini-2.5-flash` already returns "no longer available to new users" on a key created the same day. A pinned version would have shipped broken. The alias tracks whatever current flash model the account can actually reach. (Contrast with Groq, where the reverse discipline applies — see the `llama-3.3-70b-versatile` Aug 16 deprecation note in the audit results block) |
 | D22 | 2026-08-02 | The `llama-3.3-70b-versatile` → replacement-model migration is **deliberately deferred**, not overlooked — flagged prominently at the top of this document instead | Ben's call: land the audit-integrity fixes and the vision work first while that context was fresh, rather than interleave a model swap that needs its own full battery re-verification. The risk of deferring is real and bounded — a hard external cutoff on **2026-08-16**, after which the app stops working entirely — so it is recorded as an explicit deadline callout above §0 rather than left as a to-do buried in a results block. Whoever picks it up should treat it as a verification task, not a two-line edit: router accuracy is model-dependent and two routing regressions have already been caught only by re-running the §9 battery |
+| D23 | 2026-08-07 | §7.4 revised: follow-ups are now resolved against prior turns of the same conversation (`src/conversation.py`) — replacing "each question stands alone" | Evan's persistence work changed what is *stored*; it did not change what is *reasoned over*, so conversations reopened but every question was still answered from scratch and "what about my knee?" collapsed to CLARIFY. Resolving the follow-up ONCE up front, before routing, fixes that while leaving the whole pipeline untouched. Deliberately NOT done by injecting chat history into specialist prompts: specialists must answer only from retrieved corpus evidence (§7.1), and both the router and the RED_FLAG regex need a complete standalone question to behave as tuned. Scope is within-conversation only — no cross-thread user profile, no PII retention; that remains a Phase B+ discussion |
+| D24 | 2026-08-07 | Follow-up resolution also carries clinical context into questions that *look* standalone, not just obviously-dependent ones | Observed live: "give me a 3-day beginner strength program" routes `TRAINER_ONLY` with no history but `TEAM` (surgeon+PT+trainer) once the conversation has established "ACL reconstruction 6 weeks ago" — the same question, correctly bounded by post-op restrictions instead of answered as though the patient were uninjured. In a recovery product that is a safety property, so the prompt was rewritten to make it intentional rather than incidental model behavior |
+| D25 | 2026-08-07 | Agent-to-agent gains a **back-channel** (`src/agents/peer_consult.py`), implemented as a single bounded node rather than a cyclic graph edge | The chain was strictly one-directional (Surgeon→PT→Trainer→Nutritionist via `peer_context`); a specialist that hit the edge of its scope could only hedge. Now one specialist can put a direct question to another and the reply joins the synthesis evidence — verified live: `peer_consult: trainer -> surgeon: "What are the post-operative weight-bearing status and ROM restrictions..."`. Capped at `MAX_CONSULT_ROUNDS=1` and wired as a straight-through node so the DAG's documented "cannot loop" safety property survives and the token budget stays bounded (the free-tier daily cap has been hit during testing more than once) |
+| D26 | 2026-08-07 | Synthesis may attribute claims only to specialists whose draft is actually present; GraphRAG reference data is labeled as such and gets no `[source: ...]` marker | Caught during peer-consult testing: an answer said "Your nutritionist recommends Protein (2.0g/kg)..." when the nutritionist had never been consulted — the text came from the GraphRAG reference block and synthesis invented the attribution. Telling a patient a specialist said something they never said is precisely the class of overclaim this project has already had to correct once |
 
 ---
 

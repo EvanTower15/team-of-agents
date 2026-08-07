@@ -263,6 +263,14 @@ if question:
 
         effective_question = build_question_with_image(question, image_description)
 
+    # Snapshot the prior turns BEFORE appending this one -- otherwise the
+    # current question would appear in its own history. This is what lets a
+    # follow-up like "what about my knee?" resolve against earlier context
+    # instead of being answered from scratch.
+    prior_history = [
+        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+    ]
+
     st.session_state.messages.append(
         {"role": "user", "content": question, "image_description": image_description}
     )
@@ -276,7 +284,7 @@ if question:
 
     with st.chat_message("assistant", avatar="🩹"):
         with st.spinner("Consulting the care team..."):
-            result = answer_question(effective_question)
+            result = answer_question(effective_question, history=prior_history)
         st.markdown(
             f'<span class="route-chip">{result["route"]} '
             f'({result["route_confidence"]:.2f})</span>',

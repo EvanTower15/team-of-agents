@@ -586,3 +586,48 @@ regex-era numbers for historical comparison.
   claim was therefore true by construction, not evidence of safety. Judge failures now
   score 0 with `verdict: "ERROR"`, and assertions check real safety language.
 
+
+### 12.8 Conversation memory (`src/conversation.py`)
+
+- **The gap it closes:** conversations were persisted and could be reopened, but every
+  question was still answered from scratch — the agents never saw prior turns. A follow-up
+  like *"what about my knee?"* reached the router with no referent and collapsed to
+  CLARIFY. Storage had changed; reasoning had not.
+- **How it works:** the follow-up is resolved into a standalone question **once**, before
+  routing. `answer_question(question, history=None)` — the parameter is optional, so every
+  pre-existing caller is unaffected. The resolved question then flows through the
+  unchanged router → specialists → synthesis pipeline.
+- **Why not inject history into specialist prompts:** specialists answer only from their
+  retrieved corpus (§7.1) and chat history is not retrieval evidence; the router and the
+  RED_FLAG regex both need a *complete* question to behave as tuned; and it costs one extra
+  call per turn rather than four.
+- **The safety payoff, measured:** *"Give me a 3-day beginner strength program"* routes
+  `TRAINER_ONLY` with no history, but `TEAM` (surgeon + PT + trainer) once the conversation
+  has established a 6-week-old ACL reconstruction. Same question — one answer ignores the
+  patient's restrictions, the other is bounded by them.
+- **Scope limit:** within-conversation only. No cross-thread user profile, no PII retained.
+
+### 12.9 Agent-to-agent back-channel (`src/agents/peer_consult.py`)
+
+- **What existed before:** genuine but one-directional handoff — on a TEAM route the chain
+  ran Surgeon → PT → Trainer → Nutritionist, each receiving upstream drafts and their
+  structured constraints as `peer_context`. Nothing could go back, so a specialist that hit
+  the edge of its scope could only hedge ("check with your PT").
+- **What it adds:** after the chain, if one specialist needed something only another could
+  answer, that question is put to the named specialist and the reply joins the synthesis
+  evidence (with their sources merged into the citation list). Real observed trace:
+
+  ```
+  peer_consult: trainer -> surgeon: "What are the post-operative weight-bearing status
+    and range of motion restrictions for a patient 6 weeks post ACL reconstruction that
+    would impact the use of barbell squats and leg press?" (3 source(s))
+  ```
+
+- **Bounded by construction.** The orchestrator graph is a DAG and "cannot loop" is a
+  documented safety property. This is a single straight-through node capped at
+  `MAX_CONSULT_ROUNDS = 1` — not a cyclic edge — so it cannot ping-pong and cannot run away
+  with the token budget (a real constraint on a free tier whose daily cap has been hit
+  during testing).
+- **Conservative by design:** routine "talk to your doctor" disclaimers do not trigger it;
+  it fires only when an answer would materially change. Malformed or self-directed consult
+  requests resolve to "no consult" rather than routing to a nonexistent agent.

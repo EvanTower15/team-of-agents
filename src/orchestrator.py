@@ -10,11 +10,26 @@ now a 4-specialist chain).
                              │           (whichever cues fired, most-restrictive first)   │
                              ├─ RED_FLAG       -> safety_response -> END            │
                              └─ CLARIFY        -> ask_clarification -> END          v
-                                                          synthesize_team_answer -> END
+                                              peer_consult -> synthesize_team_answer -> END
                        (agent error / no usable draft) -> fallback_handler -> END
 
 Design notes (mirrors the opim-5517 reference workflow):
 * The graph is a DAG — no cycles, cannot loop.
+* ``answer_question(question, history=None)`` resolves a follow-up question
+  against prior turns BEFORE routing (src/conversation.py). Without that, a
+  message like "what about my knee?" reaches the router with no referent and
+  collapses to CLARIFY — conversations were persisted but never reasoned over.
+  History is deliberately NOT injected into specialist prompts: they answer
+  only from retrieved corpus evidence (§7.1), and the router/RED_FLAG gate
+  both need a complete standalone question to work as tuned.
+* ``peer_consult`` is the agent-to-agent BACK-channel, running once after the
+  chain and before synthesis: if a specialist needed something only another
+  specialist could answer (e.g. the trainer unsure whether a movement is
+  within post-op restrictions), that question is put to the named specialist
+  and the reply joins the synthesis evidence. Capped at MAX_CONSULT_ROUNDS=1
+  and implemented as a straight-through node rather than a cyclic edge, so
+  the "cannot loop" property above still holds and the token budget stays
+  bounded.
 * Every node captures its own errors into state instead of raising; one failing
   agent never crashes the graph — conditional edges route to fallback_handler.
 * On the TEAM route, specialists chain most-restrictive-first — surgeon, then
@@ -66,6 +81,12 @@ from src.agents.gym_trainer import GymTrainerAgent  # noqa: E402
 from src.agents.orthopedic_surgeon import OrthopedicSurgeonAgent  # noqa: E402
 from src.agents.nutritionist import NutritionistAgent  # noqa: E402
 from src.agents.constraints import extract_constraints, format_constraints_block  # noqa: E402
+from src.agents.peer_consult import (  # noqa: E402
+    MAX_CONSULT_ROUNDS,
+    detect_peer_question,
+    format_peer_exchange,
+)
+from src.conversation import resolve_followup  # noqa: E402
 from src.security.guardrails import scan_input, scan_output  # noqa: E402
 from src.eval.tracing import init_langsmith_tracing  # noqa: E402
 
@@ -116,6 +137,12 @@ _SYNTH_PROMPT = ChatPromptTemplate.from_template(
     "medical claims of your own.\n"
     "- Attribute advice to its specialist: 'Your surgeon advises...', 'Your "
     "physical therapist advises...', 'Your trainer suggests...', 'Your nutritionist recommends...'.\n"
+    "- Attribute ONLY to specialists whose draft appears below. If a block is "
+    "labeled general reference data rather than a specialist draft, never "
+    "introduce it as coming from a specialist -- a patient must not be told "
+    "their nutritionist said something when no nutritionist was consulted. "
+    "State such content plainly ('general guidance suggests...') with NO "
+    "[source: ...] marker at all; never invent a placeholder citation.\n"
     "- If the drafts conflict, say so explicitly. On post-op precautions, "
     "hardware, or weight-bearing status, follow the surgeon. On anything "
     "else involving pain, safety, or rehab restrictions, follow the physical "
@@ -169,6 +196,12 @@ class TeamState(TypedDict, total=False):
     surgeon_constraints: list  # extract_constraints() output, chained forward
     pt_constraints: list
     nutrition_constraints: list
+
+    # Bounded agent-to-agent back-channel (src/agents/peer_consult.py): one
+    # specialist may ask another a direct question after the chain runs.
+    peer_question: dict    # {"from", "to", "question"}
+    peer_answer: dict      # SpecialistAgent.consult() output from the asked agent
+    consult_rounds: int    # capped at MAX_CONSULT_ROUNDS -- the graph cannot loop
 
     final_answer: str
     sources: dict         # agent name -> [source filenames]
@@ -300,6 +333,54 @@ def consult_nutritionist(state: TeamState) -> dict:
     }
 
 
+_AGENT_BY_KEY = {
+    "surgeon": ("surgeon_result", lambda: _SURGEON),
+    "pt": ("pt_result", lambda: _PT),
+    "trainer": ("trainer_result", lambda: _TRAINER),
+    "nutrition": ("nutrition_result", lambda: _NUTRITIONIST),
+}
+
+
+def peer_consult(state: TeamState) -> dict:
+    """Bounded agent-to-agent back-channel.
+
+    Before synthesis, check whether one specialist needs something only
+    another specialist can answer (e.g. the trainer unsure whether a movement
+    is within post-op restrictions). If so, put that question to the named
+    specialist and add the reply to the evidence synthesis sees.
+
+    Hard-capped at MAX_CONSULT_ROUNDS round-trips so the DAG's "cannot loop"
+    safety property still holds and the token budget stays bounded.
+    """
+    if state.get("consult_rounds", 0) >= MAX_CONSULT_ROUNDS:
+        return {}
+
+    drafts = {
+        key: state[field]["answer"]
+        for key, (field, _) in _AGENT_BY_KEY.items()
+        if _ok(state.get(field))
+    }
+    if len(drafts) < 2:
+        return {}  # need at least two specialists for one to ask another
+
+    peer_q = detect_peer_question(state["question"], drafts)
+    if not peer_q:
+        return {"consult_rounds": state.get("consult_rounds", 0) + 1}
+
+    field, agent_getter = _AGENT_BY_KEY[peer_q["to"]]
+    asked = agent_getter().consult(peer_q["question"])
+    note = asked["error"] or f"{len(asked['sources'])} source(s)"
+    return {
+        "peer_question": peer_q,
+        "peer_answer": asked,
+        "consult_rounds": state.get("consult_rounds", 0) + 1,
+        "execution_trace": [
+            f"peer_consult: {peer_q['from']} -> {peer_q['to']}: "
+            f"\"{peer_q['question']}\" ({note})"
+        ],
+    }
+
+
 def synthesize_team_answer(state: TeamState) -> dict:
     drafts, sources = [], {}
     surgeon = state.get("surgeon_result")
@@ -318,6 +399,21 @@ def synthesize_team_answer(state: TeamState) -> dict:
         drafts.append(f"SPORTS NUTRITIONIST DRAFT:\n{nut['answer']}")
         sources["nutritionist"] = nut["sources"]
 
+    # A specialist's direct answer to another specialist's question carries
+    # the same weight as a draft -- it IS grounded specialist output, and the
+    # asked agent's sources belong in the citation list.
+    peer_q, peer_a = state.get("peer_question"), state.get("peer_answer")
+    if peer_q and _ok(peer_a):
+        drafts.append(format_peer_exchange(peer_q, peer_a["answer"]))
+        agent_name = {
+            "surgeon": "orthopedic_surgeon",
+            "pt": "physical_therapist",
+            "trainer": "gym_trainer",
+            "nutrition": "nutritionist",
+        }[peer_q["to"]]
+        existing = sources.get(agent_name, [])
+        sources[agent_name] = existing + [s for s in peer_a["sources"] if s not in existing]
+
     try:
         graph_chain = _get_clinical_graph().query_multihop_chain(state["question"])
         # matched_entity is None when the question doesn't genuinely name one
@@ -326,7 +422,9 @@ def synthesize_team_answer(state: TeamState) -> dict:
         # inject irrelevant contraindications into every question).
         if graph_chain.get("matched_entity"):
             graph_summary = (
-                f"CLINICAL GRAPH RAG MULTI-HOP PATHWAYS ({graph_chain['matched_entity']}):\n"
+                f"GENERAL REFERENCE DATA — NOT A SPECIALIST DRAFT "
+                f"({graph_chain['matched_entity']}). Do not attribute any of this "
+                f"to a specialist; state it as general guidance or omit it:\n"
                 f"- Contraindicated Movements: {', '.join(graph_chain['contraindicated_movements'])}\n"
                 f"- Recommended Rehab Exercises: {', '.join(graph_chain['rehab_exercises'])}\n"
                 f"- Healing Nutrients & Synergies: {', '.join([n['nutrient'] for n in graph_chain['multihop_nutrient_pathways']])}"
@@ -514,6 +612,7 @@ def _get_graph():
     g.add_node("consult_pt", consult_pt)
     g.add_node("consult_trainer", consult_trainer)
     g.add_node("consult_nutritionist", consult_nutritionist)
+    g.add_node("peer_consult", peer_consult)
     g.add_node("synthesize_team_answer", synthesize_team_answer)
     g.add_node("safety_response", safety_response)
     g.add_node("ask_clarification", ask_clarification)
@@ -539,7 +638,7 @@ def _get_graph():
             "consult_pt": "consult_pt",
             "consult_trainer": "consult_trainer",
             "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "synthesize_team_answer",
+            "synthesize": "peer_consult",
             "fallback": "fallback_handler",
         },
     )
@@ -549,7 +648,7 @@ def _get_graph():
         {
             "consult_trainer": "consult_trainer",
             "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "synthesize_team_answer",
+            "synthesize": "peer_consult",
             "fallback": "fallback_handler",
         },
     )
@@ -558,15 +657,18 @@ def _get_graph():
         _after_trainer,
         {
             "consult_nutritionist": "consult_nutritionist",
-            "synthesize": "synthesize_team_answer",
+            "synthesize": "peer_consult",
             "fallback": "fallback_handler",
         },
     )
     g.add_conditional_edges(
         "consult_nutritionist",
         _after_nutritionist,
-        {"synthesize": "synthesize_team_answer", "fallback": "fallback_handler"},
+        {"synthesize": "peer_consult", "fallback": "fallback_handler"},
     )
+    # peer_consult always falls through to synthesis -- it is a single bounded
+    # pass, never a cycle, so the DAG's "cannot loop" property still holds.
+    g.add_edge("peer_consult", "synthesize_team_answer")
     g.add_edge("synthesize_team_answer", END)
     g.add_edge("safety_response", END)
     g.add_edge("ask_clarification", END)
@@ -579,8 +681,17 @@ def _get_graph():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def answer_question(question: str) -> dict:
+def answer_question(question: str, history: list[dict] | None = None) -> dict:
     """Run the team graph on one question and return the §5.4 result dict.
+
+    `history` is the prior conversation as a list of
+    ``{"role": "user"|"assistant", "content": str}`` dicts. It is OPTIONAL and
+    defaults to None, so every existing caller keeps working unchanged. When
+    provided, a follow-up like "what about my knee?" is first resolved into a
+    standalone question against those turns (src/conversation.py) -- otherwise
+    the router and every specialist would see a question with no referent and
+    collapse to CLARIFY. The resolved question is what flows through the rest
+    of the pipeline; routing, retrieval, and synthesis are untouched by this.
 
     Input is scanned for prompt injection / SQL injection / PII before it
     ever reaches the router or a specialist (src/security/guardrails.py);
@@ -588,6 +699,8 @@ def answer_question(question: str) -> dict:
     The sanitized (PII-redacted) question is what actually gets processed.
     Output is scanned once more before being returned to the caller.
     """
+    # Scan the raw user input FIRST -- before it is combined with history --
+    # so an injection attempt can never reach the rewrite call either.
     safe, sanitized_question, violation = scan_input(question)
     if not safe:
         return {
@@ -600,7 +713,17 @@ def answer_question(question: str) -> dict:
             "execution_trace": [f"security_guardrail: input blocked - {violation}"],
         }
 
-    state = _get_graph().invoke({"question": sanitized_question, "execution_trace": []})
+    followup_trace = []
+    effective_question = sanitized_question
+    if history:
+        resolved = resolve_followup(sanitized_question, history)
+        if resolved["error"]:
+            followup_trace = [f"resolve_followup: failed ({resolved['error']}); using question as-is"]
+        elif resolved["rewritten"]:
+            effective_question = resolved["resolved"]
+            followup_trace = [f"resolve_followup: rewritten using history -> \"{effective_question}\""]
+
+    state = _get_graph().invoke({"question": effective_question, "execution_trace": followup_trace})
 
     agents_consulted = [
         name
