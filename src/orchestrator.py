@@ -320,7 +320,15 @@ def consult_next(state: TeamState) -> dict:
     peer = "\n\n".join(blocks) or None
 
     result = agent_getter().consult(state["question"], peer_context=peer)
-    constraints = extract_constraints(result["answer"]) if _ok(result) else []
+
+    # Only extract for specialists whose constraints actually bind someone
+    # downstream. The trainer has no constraint field (_CONSTRAINT_FIELD), so
+    # extracting from its draft spent a Groq call on a value that was then
+    # discarded -- on every TEAM question that included the trainer.
+    cfield, _ = _CONSTRAINT_FIELD[key]
+    constraints = (
+        extract_constraints(result["answer"]) if cfield and _ok(result) else []
+    )
 
     tools = result.get("tools_used") or []
     note = result["error"] or (
@@ -334,7 +342,6 @@ def consult_next(state: TeamState) -> dict:
         "plan_index": idx + 1,
         "execution_trace": [f"consult_{key}: {note}"],
     }
-    cfield, _ = _CONSTRAINT_FIELD[key]
     if cfield:
         update[cfield] = constraints
     return update

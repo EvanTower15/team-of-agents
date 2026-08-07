@@ -127,6 +127,31 @@ def get_small_llm():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _load_pdf(path: Path) -> list:
+    """Load one PDF, preferring Docling's layout-aware parse.
+
+    Docling is better on the multi-column, figure-heavy patient-education PDFs
+    in data/, but it runs a torch model and can fail at CONVERSION time, not
+    just at import time -- on a machine with no C++ compiler it raises
+    ``InvalidCxxCompiler: Compiler: cl is not found`` partway through. The
+    previous code only guarded the import, so one unconvertible PDF aborted the
+    whole ingest and left the collection unbuilt (this is exactly how the
+    ``pt_docs`` collection went missing). Fall back per file instead: a
+    plainer PyPDF parse of one document beats losing the entire corpus.
+    """
+    if DoclingLoader is not None:
+        try:
+            return DoclingLoader(file_path=str(path)).load()
+        except Exception as exc:
+            print(
+                f"[rag_core] Docling failed on {path.name} "
+                f"({type(exc).__name__}); falling back to PyPDFLoader."
+            )
+    from langchain_community.document_loaders import PyPDFLoader
+
+    return PyPDFLoader(str(path)).load()
+
+
 def load_folder_documents(folder: str) -> list:
     """Load every supported file (.pdf / .txt / .md) in a folder.
 
@@ -147,14 +172,9 @@ def load_folder_documents(folder: str) -> list:
                 print(f"[rag_core] Skipping unsupported file: {path.name}")
             continue
         if ext == ".pdf":
-            if DoclingLoader is not None:
-                loader = DoclingLoader(file_path=str(path))
-            else:
-                from langchain_community.document_loaders import PyPDFLoader
-                loader = PyPDFLoader(str(path))
+            docs = _load_pdf(path)
         else:
-            loader = TextLoader(str(path), encoding="utf-8")
-        docs = loader.load()
+            docs = TextLoader(str(path), encoding="utf-8").load()
         all_docs.extend(docs)
         print(f"[rag_core] Loaded {len(docs)} document(s) from {path.name}")
     return all_docs
