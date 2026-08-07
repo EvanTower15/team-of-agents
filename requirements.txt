@@ -8,8 +8,18 @@ langchain-groq>=0.1.0
 langchain-text-splitters>=0.2.0
 
 # Embeddings — local, no API key needed (see PROJECT_PLAN.md decision D2)
+# sentence-transformers also provides the CLIP model used for real
+# image-embedding search in src/multimodal/clip_search.py
 langchain-huggingface>=0.1.0
 sentence-transformers>=3.0.0
+
+# Image handling: CLIP indexing (src/multimodal/) + uploaded-photo validation
+pillow>=10.0.0
+
+# Uploaded-photo vision calls to Google Gemini (src/vision.py). Groq has no
+# vision-capable model on this account, so this one call goes elsewhere -- see
+# PROJECT_PLAN.md decision D18. Optional: text-only questions work without it.
+requests>=2.31.0
 
 # Vector database (embedded, persisted to ./chroma_db/)
 langchain-chroma>=0.1.0
@@ -31,5 +41,10 @@ pypdf>=4.0.0
 # Corpus scrapers (src/scrapers/ — used only by `python -m src.ingest`)
 cloudscraper>=1.2.71
 requests>=2.31.0
+langchain-docling>=0.1.0
+
+# Data collection scrapers (src/scrapers/) — see data/SOURCES.md for what's
+# actually curated from their output before it reaches an ingested corpus
+playwright>=1.40.0
 beautifulsoup4>=4.12.0
 playwright>=1.40.0

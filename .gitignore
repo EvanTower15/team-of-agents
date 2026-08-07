@@ -8,6 +8,8 @@ chroma_db/
 data/chat_history.db
 data/chat_history.db-wal
 data/chat_history.db-shm
+# Generated CLIP image-embedding index (rebuilt automatically from data/*/visuals/)
+clip_index.npz
 
 # Python
 __pycache__/

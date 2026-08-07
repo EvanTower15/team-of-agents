@@ -1,8 +1,16 @@
 """
-src/graph_rag/kuzu_graph.py — Robust Multi-Hop Property Graph Manager.
+src/graph_rag/kuzu_graph.py — curated clinical reference lookup for 4 common
+post-op surgeries (contraindications, rehab exercises, nutrient synergies),
+with an optional real KuzuDB graph backing.
 
-Provides KuzuDB property graph queries and a rich, resilient graph traversal engine
-for clinical contraindications, surgical procedures, rehab exercises, and nutrient repair pathways.
+Honest status as shipped: ``kuzu`` is not in requirements.txt, so
+``kuzu_available`` is always False in practice and every query method below
+reads from the in-memory ``self.nodes`` dict, not a real graph traversal.
+The schema/populate/query_contraindications Cypher methods exist for a real
+KuzuDB backend but are currently unreachable from the rest of the codebase
+(only ``query_multihop_chain`` is called, and it never touches ``self.conn``).
+If you want the real graph DB path, add ``kuzu`` to requirements.txt and wire
+a caller to ``query_contraindications`` instead.
 """
 
 from __future__ import annotations
@@ -82,8 +90,12 @@ class ClinicalGraphRAG:
             self._create_schema()
             self._populate_kuzu_nodes()
             print(f"[graph_rag] KuzuDB engine initialized at '{self.db_path}'.")
-        except Exception:
+        except Exception as exc:
+            # Expected in this repo as shipped: kuzu isn't in requirements.txt.
+            # Logged (not silently swallowed) so it's clear from the console
+            # that every query below is reading the static in-memory dict.
             self.kuzu_available = False
+            print(f"[graph_rag] KuzuDB unavailable, using in-memory fallback data: {exc}")
 
     def _create_schema(self) -> None:
         if not self.kuzu_available:
@@ -196,9 +208,19 @@ class ClinicalGraphRAG:
         return ["gentle isometric contractions", "range of motion exercises"]
 
     def query_multihop_chain(self, query: str) -> Dict[str, Any]:
-        """Perform full 3-hop graph traversal: Surgery/Injury -> Rehab -> Nutrients -> Contraindications."""
-        matched_surgery = self.fuzzy_match_surgery(query) or "ACL Reconstruction"
-        sdata = self.nodes["surgeries"].get(matched_surgery, self.nodes["surgeries"]["ACL Reconstruction"])
+        """Look up curated contraindications/rehab/nutrients for a surgery
+        mentioned in the query. Returns matched_entity=None (and no other
+        fields) when nothing genuinely matches -- previously this defaulted
+        to "ACL Reconstruction" unconditionally, which meant every synthesis
+        call injected ACL-specific contraindications into completely
+        unrelated questions (e.g. a beginner strength-program request would
+        get "no pivoting, no deep squatting" stapled on). That silently
+        violated this project's own grounding rule (§7.1: don't improvise
+        content the question didn't ask for)."""
+        matched_surgery = self.fuzzy_match_surgery(query)
+        if not matched_surgery:
+            return {"matched_entity": None}
+        sdata = self.nodes["surgeries"][matched_surgery]
 
         # Multi-hop nutrient synergies
         nutrient_details = []

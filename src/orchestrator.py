@@ -1,15 +1,15 @@
 """
 src/orchestrator.py — the LangGraph team workflow (Phase 4, extended Phase 4b,
-fourth specialist added with the Sports Nutritionist).
+now a 4-specialist chain).
 
     START -> route_question ─┬─ PT_ONLY        -> consult_pt ──────────────────────┐
-                             ├─ TRAINER_ONLY   -> consult_trainer ─────────────────┤
-                             ├─ SURGEON        -> consult_surgeon ─────────────────┤
-                             ├─ NUTRITION_ONLY -> consult_nutritionist ────────────┤
-                             ├─ TEAM  -> [surgeon] -> [pt] -> [trainer] -> [nutritionist]
-                             │           (whichever cues fired) ───────────────────┤
-                             ├─ RED_FLAG       -> safety_response -> END           │
-                             └─ CLARIFY        -> ask_clarification -> END         v
+                             ├─ TRAINER_ONLY   -> consult_trainer ──────────────────┤
+                             ├─ SURGEON        -> consult_surgeon ──────────────────┤
+                             ├─ NUTRITION_ONLY -> consult_nutritionist ─────────────┤
+                             ├─ TEAM  -> [surgeon] -> [pt] -> [trainer] -> [nutritionist] ┤
+                             │           (whichever cues fired, most-restrictive first)   │
+                             ├─ RED_FLAG       -> safety_response -> END            │
+                             └─ CLARIFY        -> ask_clarification -> END          v
                                                           synthesize_team_answer -> END
                        (agent error / no usable draft) -> fallback_handler -> END
 
@@ -24,6 +24,10 @@ Design notes (mirrors the opim-5517 reference workflow):
   constraints (src/agents/constraints.py), as ``peer_context``; the nutritionist
   sits last precisely because it must respect every clinical restriction above it.
 * RED_FLAG never touches an LLM: canned response, appended in code (D5, §7.3).
+* Every question is scanned for prompt injection / SQL injection / PII before
+  it reaches the router, and every answer is scanned once more before it's
+  returned (src/security/guardrails.py) — a violation short-circuits the
+  whole graph, same posture as RED_FLAG.
 * The standing disclaimer (§7.2) is a code constant appended by the terminal
   nodes — never left to the LLM.
 
@@ -62,6 +66,7 @@ from src.agents.gym_trainer import GymTrainerAgent  # noqa: E402
 from src.agents.orthopedic_surgeon import OrthopedicSurgeonAgent  # noqa: E402
 from src.agents.nutritionist import NutritionistAgent  # noqa: E402
 from src.agents.constraints import extract_constraints, format_constraints_block  # noqa: E402
+from src.security.guardrails import scan_input, scan_output  # noqa: E402
 from src.eval.tracing import init_langsmith_tracing  # noqa: E402
 
 load_dotenv()
@@ -95,6 +100,11 @@ RED_FLAG_RESPONSE = (
 
 FALLBACK_APOLOGY = (
     "Sorry - the team could not produce a grounded answer for that question."
+)
+
+BLOCKED_RESPONSE = (
+    "That question couldn't be processed for security reasons. Please rephrase "
+    "and ask again without special instructions, code, or account/system details."
 )
 
 _SYNTH_PROMPT = ChatPromptTemplate.from_template(
@@ -309,9 +319,11 @@ def synthesize_team_answer(state: TeamState) -> dict:
         sources["nutritionist"] = nut["sources"]
 
     try:
-        from src.graph_rag.kuzu_graph import ClinicalGraphRAG
-        graph_rag = ClinicalGraphRAG()
-        graph_chain = graph_rag.query_multihop_chain(state["question"])
+        graph_chain = _get_clinical_graph().query_multihop_chain(state["question"])
+        # matched_entity is None when the question doesn't genuinely name one
+        # of the 4 curated surgeries -- see kuzu_graph.py's docstring for why
+        # that guard matters (it used to default to "ACL Reconstruction" and
+        # inject irrelevant contraindications into every question).
         if graph_chain.get("matched_entity"):
             graph_summary = (
                 f"CLINICAL GRAPH RAG MULTI-HOP PATHWAYS ({graph_chain['matched_entity']}):\n"
@@ -320,8 +332,11 @@ def synthesize_team_answer(state: TeamState) -> dict:
                 f"- Healing Nutrients & Synergies: {', '.join([n['nutrient'] for n in graph_chain['multihop_nutrient_pathways']])}"
             )
             drafts.append(graph_summary)
-    except Exception:
-        pass
+    except Exception as exc:
+        # Never let a decorative enrichment feature take down the real
+        # synthesis path -- but log it instead of silently swallowing it,
+        # per this codebase's "errors are visible, never faked" convention.
+        print(f"[orchestrator] graph_rag lookup failed (non-fatal): {exc}")
 
     if not drafts:  # conditional edges should prevent this; guard anyway
         return {
@@ -486,6 +501,15 @@ def _after_nutritionist(state: TeamState) -> str:
 
 
 @lru_cache(maxsize=1)
+def _get_clinical_graph():
+    """Cached singleton -- avoid rebuilding the in-memory clinical lookup
+    (and retrying the kuzu import) on every single synthesis call."""
+    from src.graph_rag.kuzu_graph import ClinicalGraphRAG
+
+    return ClinicalGraphRAG()
+
+
+@lru_cache(maxsize=1)
 def _get_graph():
     g = StateGraph(TeamState)
     g.add_node("route_question", route_question)
@@ -559,8 +583,27 @@ def _get_graph():
 
 
 def answer_question(question: str) -> dict:
-    """Run the team graph on one question and return the §5.4 result dict."""
-    state = _get_graph().invoke({"question": question, "execution_trace": []})
+    """Run the team graph on one question and return the §5.4 result dict.
+
+    Input is scanned for prompt injection / SQL injection / PII before it
+    ever reaches the router or a specialist (src/security/guardrails.py);
+    a violation short-circuits the whole graph, same posture as RED_FLAG.
+    The sanitized (PII-redacted) question is what actually gets processed.
+    Output is scanned once more before being returned to the caller.
+    """
+    safe, sanitized_question, violation = scan_input(question)
+    if not safe:
+        return {
+            "final_answer": BLOCKED_RESPONSE + DISCLAIMER,
+            "route": "BLOCKED",
+            "route_confidence": 1.0,
+            "agents_consulted": [],
+            "sources": {},
+            "constraints": {},
+            "execution_trace": [f"security_guardrail: input blocked - {violation}"],
+        }
+
+    state = _get_graph().invoke({"question": sanitized_question, "execution_trace": []})
 
     agents_consulted = [
         name
@@ -581,14 +624,21 @@ def answer_question(question: str) -> dict:
         )
         if state.get(field)
     }
+    final_answer = state.get("final_answer", FALLBACK_APOLOGY + DISCLAIMER)
+    trace = state.get("execution_trace", [])
+    output_safe, checked_answer = scan_output(final_answer)
+    if not output_safe:
+        final_answer = BLOCKED_RESPONSE + DISCLAIMER
+        trace = trace + ["security_guardrail: output blocked"]
+
     return {
-        "final_answer": state.get("final_answer", FALLBACK_APOLOGY + DISCLAIMER),
+        "final_answer": final_answer,
         "route": state.get("route", CLARIFY),
         "route_confidence": state.get("route_confidence", 0.0),
         "agents_consulted": agents_consulted,
         "sources": state.get("sources", {}),
         "constraints": constraints,
-        "execution_trace": state.get("execution_trace", []),
+        "execution_trace": trace,
     }
 
 

@@ -24,6 +24,192 @@
 > question still stands alone (see §7 point 4). `tests/test_database.py` adds 14 offline
 > tests; `AppTest` verified the five UI flows end-to-end headlessly (42 checks, 0 exceptions);
 > full suite 56 passed.
+> **Status: REAL VISION SUPPORT ADDED (2026-08-02)** — the two previously-fake "multimodal"
+> claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
+> users can upload a photo that a real vision model describes. Built on top of the same-day
+> audit + integrity fix pass (block below), which made the rest of the 2026-07-30 claims
+> true.
+
+---
+
+## ⚠️ ACTION REQUIRED BEFORE 2026-08-16 — the LLM this project runs on is being retired
+
+**Groq is shutting down `llama-3.3-70b-versatile` on August 16, 2026.** That is the exact
+model string the router, all four specialist agents, and synthesis every one call. When it
+is retired, **the entire app stops working** — every Groq call returns an error and the
+system degrades to fallback/CLARIFY responses for every question.
+
+This is a hard external deadline, not a stylistic cleanup. Deliberately deferred on
+2026-08-02 to land the audit-integrity and vision work first (decision D22); it has **not**
+been started.
+
+**What to change (2 lines):**
+
+| File | Line | Current |
+|---|---|---|
+| `src/rag_core.py` | `GROQ_MODEL` | `"llama-3.3-70b-versatile"` |
+| `src/router.py` | `MODEL` | `"llama-3.3-70b-versatile"` |
+
+**Replacement candidates — both confirmed live on this project's Groq key (2026-08-02):**
+- `openai/gpt-oss-120b` — Groq's own recommended replacement; free-tier limits 30 RPM /
+  8K TPM / 1K RPD (vs. 12K TPM today, so slightly *tighter* per-minute headroom)
+- `qwen/qwen3.6-27b` — same free-tier limits
+
+**Do not skip verification.** The router prompt is tuned with few-shot examples and an
+explicit surgeon-detection rule, and its accuracy is model-dependent — two separate
+routing regressions have already been caught by re-running the battery (see the Phase 4c
+and audit results blocks). After swapping the model string, re-run the full §9 battery
+live and confirm it still passes 16/16 before considering the migration done. Budget a
+real chunk of time for this, not a two-line commit.
+
+**Watch the free-tier daily token cap while testing:** this session exhausted the 100K
+TPD limit purely on live verification runs, which surfaces as `RateLimitError` mid-battery.
+
+---
+
+> *(As each phase completes, append a dated "Phase N results" block directly below this
+> line, newest first. Keep every result block forever — they are the project memory.)*
+>
+> **Real vision support results (2026-08-02)** — Ben. Follow-up to the audit pass below,
+> which found that both "multimodal" features were mislabeled. Both are now genuinely real:
+>
+> 1. **`src/multimodal/clip_search.py` rewritten to use actual CLIP embeddings**
+>    (`sentence-transformers` `clip-ViT-B-32`), replacing filename-substring matching that
+>    never opened an image. Index is computed once over 277 images and cached to
+>    `clip_index.npz` (gitignored, auto-rebuilds via a fingerprint of the image set).
+>    **Verified live:** query "squat exercise form" now returns
+>    `pdf_hhs_physical_activity_guidelin_p62_img1.jpg` as the #1 hit — I opened that file
+>    and it is literally a photo of a man doing a bodyweight squat, with a filename
+>    containing zero descriptive words. The old code could not have found it under any
+>    query; ~94% of this corpus has that kind of opaque PDF-extracted name.
+>    **Two real bugs found and fixed during testing, not after:** (a) the cache-hit path
+>    reused the full scanned catalog while the cached embeddings excluded unreadable
+>    images, so every result after the first skipped file was **paired with the wrong
+>    filename** — caught because two identical queries returned different files at the
+>    same score; the cache now stores the embedded paths and realigns. (b) CLIP measurably
+>    under-ranks text-heavy diagrams — a labeled squat-form infographic scored below rank
+>    20 for "squat exercise form" — so scoring is now hybrid (D20), which moved it to #2
+>    while leaving the photo at #1.
+> 2. **`src/vision.py` (new) — real user photo upload**, wired into `app.py` as a file
+>    uploader above the chat. **Provider had to change (D18):** a live query of the Groq
+>    account's `/v1/models` returned **no vision-capable model at all** — Llama 4
+>    Scout/Maverick are simply not on this key, and every available text model rejects
+>    image content (verified by sending a real image to each). An earlier claim in this
+>    conversation that Scout was available came from general web docs, not the actual
+>    account, and was wrong. Photo calls now go to Google Gemini's free tier
+>    (`gemini-flash-latest` alias — D21, because `gemini-2.5-flash` is already retired for
+>    new keys); everything else stays on Groq. `GOOGLE_API_KEY` is optional.
+> 3. **Architecture deliberately unchanged (D19):** the photo is described once, up front,
+>    and that text is folded into the question — the router, four specialists, and
+>    synthesis are untouched. **Safety verified live:** a photo described as showing "a
+>    surgical incision with redness and yellow drainage" trips RED_FLAG's deterministic
+>    regex and short-circuits, *even when the typed question was innocuous* ("What
+>    exercises can I do?"). The vision prompt itself is constrained to neutral visual
+>    description only — no diagnosis, no severity, no advice — confirmed in real output.
+>
+> Verification: full syntax check clean; `pytest tests/` **38 passed**, 4 failed — all 4
+> failures are the Groq free-tier daily token cap (99,646/100,000 used from this session's
+> live testing), confirmed by reading the actual `RateLimitError` in the fallback output,
+> not code regressions. `AppTest` confirms the app renders with the uploader and chat input
+> and zero exceptions.
+>
+> **Audit + integrity fix pass (2026-08-02, same day, immediately prior)** — the 2026-07-30
+> "Full Production Extension" claimed a lot; an audit found most of the new "advanced"
+> features were decorative/mislabeled and one safety-test claim was fabricated by
+> construction. All found issues fixed — see the results block below.
+>
+> **Audit + integrity fix pass results (2026-08-02)** — Ben (with AI pairing). The
+> 2026-07-30 block below claimed a complete "enterprise-grade" extension. An audit (4
+> parallel deep-reads plus live testing) found real problems under several of those claims;
+> every one below was fixed in this pass, not just documented:
+> 1. **Fabricated safety-eval claim (most serious).** `src/eval/eval_suite.py`'s
+>    LLM-as-a-judge had a bare `except Exception` that returned a **hardcoded perfect
+>    score** (`safety_score: 5, PASS: True`) on ANY failure — missing key, rate limit,
+>    anything. Combined with near-tautological string-match assertions in
+>    `tests/test_high_risk_scenarios.py` (one checked for `"rate"`, which matches
+>    "mode**rate**"/"accele**rate**"; another checked for `"sorry"`, which matches the
+>    orchestrator's own generic failure text) the claimed "100% pass rate" was true by
+>    construction, not by the system actually being safe. Fixed: judge failures now score 0
+>    and return `verdict: "ERROR"`, `pass: False`; loose assertions replaced with real
+>    safety-language checks. **Proof the fix works:** re-running the suite later in this
+>    same pass hit Groq's free-tier daily token cap, and the affected tests now **fail
+>    loudly** with the real `rate_limit_exceeded` error instead of silently reporting a
+>    fake pass — exactly the behavior change intended.
+> 2. **GraphRAG was decorative and had a real correctness bug.** `kuzu` was never in
+>    `requirements.txt`, so `kuzu_available` was always `False` and `query_multihop_chain()`
+>    always read a hardcoded 4-surgery dict, not a real graph — labeled honestly now (module
+>    docstring says so explicitly). Worse: it defaulted to `"ACL Reconstruction"` whenever
+>    nothing matched the question, so **every synthesized answer, for any question, got ACL
+>    contraindications silently stapled onto it** — a direct violation of this project's own
+>    grounding rule (§7.1). Fixed: returns `matched_entity: None` (no injection) when nothing
+>    genuinely matches; the `except Exception: pass` around the call site now logs instead of
+>    silently swallowing; the graph instance is now cached instead of rebuilt every synthesis
+>    call.
+> 3. **"CLIP Multimodal Visual Search" has no CLIP, no ML, no vision model.** It's filename
+>    substring matching (`src/multimodal/clip_search.py`) — no `torch`/`clip`/`pillow`
+>    anywhere in `requirements.txt`. Confirmed while checking: `llama-3.3-70b-versatile`
+>    (the model this whole project uses) is text-only too, so real vision support would need
+>    a model change as well as a real embedding pipeline. Docstrings now say plainly what it
+>    actually is; `app.py` now caches the search index (`@st.cache_resource`) instead of
+>    rescanning every visuals/ folder on every chat message on every rerun, and surfaces
+>    failures instead of a silent `except: pass`.
+> 4. **Security guardrails existed but protected nothing real.** `src/security/guardrails.py`
+>    (regex-based prompt-injection/PII/SQL-injection scanning) was only called from the
+>    unused `src/cli.py`, never from `app.py` or `orchestrator.py` — the actual product path
+>    every real user hits. Fixed: `answer_question()` now scans input before it reaches the
+>    router (blocks + short-circuits on a violation, same posture as RED_FLAG) and scans
+>    output before returning it, with a new `BLOCKED` route visible in the trace.
+> 5. **Unit economics was decorative too.** Token counts were a `len(text)/4` heuristic
+>    (kept — it's an honestly-labeled approximation, not a fabrication) but the $0.05 budget
+>    guard did nothing when triggered even in the one place it was called, and `app.py`'s
+>    sidebar showed a **hardcoded `$0.0012`** in a static ROI panel, never touching a real
+>    query. Fixed: the sidebar now computes real per-exchange cost from the actual session's
+>    chat history and shows a real accumulated total with a visible budget-guard warning.
+> 6. **Router regression: our Phase 4c surgeon-detection fix didn't survive the rewrite**
+>    that added the 4th (nutrition) specialist — the explicit "flag surgeon even if
+>    clearance already happened" rule and matching example were gone. Re-added. **Also found
+>    and fixed a second, newer regression while re-verifying:** a `keyword_route_fallback`
+>    James added the same day (`85ef757`, to fix the same two gaps we'd already found) was
+>    triggering even when the LLM *confidently* returned CLARIFY, so "What's the best gym?"
+>    started resolving to `TRAINER_ONLY` via a bare "gym" keyword match — undoing a case we'd
+>    already fixed once. Fixed: the fallback now only fires when the LLM's own confidence was
+>    below threshold, never to second-guess a confident CLARIFY. **Full battery re-verified
+>    live: 16/16** (12 original + 3 surgeon/three-way + 1 nutrition row).
+> 7. **Nutritionist agent gaps.** Actually wired correctly end-to-end (router → orchestrator
+>    → ingest → UI all consistent) — better than the other four items above — but its
+>    persona was missing the scope-deference/citation rules every other specialist has
+>    (added); `data/nutrition/`'s 9 text sources had zero `data/SOURCES.md` entries despite
+>    §7.5 requiring one in the same PR that adds a file (added, all MedlinePlus/NIH ODS,
+>    public domain); `fallback_handler` didn't include nutrition errors in its reasons or
+>    rebuild hints (added); the module docstring/ASCII diagram still described a 3-agent
+>    chain (updated to the real 4-agent Surgeon→PT→Trainer→Nutritionist order).
+> 8. **Housekeeping.** `requirements.txt` had a literal duplicated block (lines 1-16 repeated
+>    verbatim at 19-34) — deduped. Two byte-identical duplicate image files in
+>    `data/nutrition/visuals/` (confirmed via checksum) — removed. Two clearly-irrelevant
+>    documents in `data/pt/structured/` (an APTA conference sponsorship prospectus, an AOPT
+>    strategic plan — both pulled in by a scraper that grabbed every PDF link off a page with
+>    no relevance filtering) — removed. Four `Geriatrics_*.pdf` files that were exact
+>    duplicates of already-logged content, which would have caused double-ingestion into
+>    `pt_docs` given the now-recursive folder walk in `rag_core.py` — removed.
+> 9. **Explicitly NOT resolved, flagged for a real team decision (not made unilaterally
+>    here):** `data/pt/unstructured/*.txt` (10 files) came from
+>    `src/scrapers/physiopedia_scraper.py`, which uses `cloudscraper` specifically to bypass
+>    Physiopedia's Cloudflare bot protection; the content is CC-BY-NC-SA (attribution
+>    required) and carries none. `src/scrapers/jospt_scraper.py` does the same against
+>    JOSPT's WAF via Playwright. Whether to keep this content (with proper attribution) or
+>    remove it is a licensing/ethics call — see `data/SOURCES.md`'s `data/pt/` section.
+> 10. **Also found, separately urgent:** Groq is retiring `llama-3.3-70b-versatile` — the
+>     exact model string every specialist, the router, and synthesis all use — on
+>     **August 16, 2026**. Recommended replacements: `openai/gpt-oss-120b`,
+>     `qwen/qwen3.6-27b`, or (if real vision support is ever wanted for #3 above) the
+>     natively-multimodal `meta-llama/llama-4-scout-17b-16e-instruct` (actually cheaper than
+>     the current model). **Not yet migrated** — explicitly deferred this pass at Ben's
+>     request to land the integrity fixes first; do this before the deadline.
+>
+> Verification for all of the above: full syntax check clean across `src/`/`tests`/`app.py`;
+> `pytest tests/` 38/42 passing (4 failures are a live Groq daily-quota hit mid-session, not
+> code defects — see point 1); router battery 16/16 live; `test_e2e_security_guardrail_blocking`
+> confirms the guardrail wiring works end-to-end through the real orchestrator, not a mock.
 >
 > **Phase 6+ Production System results (2026-07-30)** — Evan, Ben, James. Complete enterprise-grade expansion of the Recovery Team MAS:
 > 1. Added **Sports Nutritionist Agent** 🥗 (`src/agents/nutritionist.py` + `data/nutrition/`) for post-op nutrition, protein targets, and tendon/ligament healing.
@@ -33,6 +219,9 @@
 > 5. Built **Business Unit Economics & AI Budget Overrun Controls** (`src/business/unit_economics.py`) tracking Groq Llama 3.3 70B token inference costs, local compute savings, and budget limits ($0.05 max per query).
 > 6. Developed **Programmatic E2E CLI** (`src/cli.py`) and **Automated Pytest Suite** (`tests/`) running full integration tests from command line.
 > 7. Implemented **High-Risk Patient Safety & LLM-as-a-Judge Evaluator** (`tests/test_high_risk_scenarios.py`) stress-testing uninsured/non-compliant patient scenarios (premature 225lb squats, skipping PT, extreme dieting, infection red-flags) with 100% pass rate.
+>
+> **Correction, added 2026-08-02:** point 7's "100% pass rate" was not a reliable signal —
+> see the audit + integrity fix pass block above for why, and what was done about it.
 >
 > **Phase 5 results (2026-07-15)** — Ben. `app.py`: a chat UI that imports only
 > `answer_question()` (§5.4) — no agent/router/orchestrator internals touched, per the
@@ -268,17 +457,24 @@
 
 **For every teammate and every AI agent working in this repo:**
 
-1. **Before starting work:** read the Status block above, find your phase in [§8](#8-phase-plan),
+1. **Before starting work:** read the Status block above — including the
+   **⚠️ ACTION REQUIRED BEFORE 2026-08-16** callout, since the model this whole project
+   runs on is being retired on that date — then find your phase in [§8](#8-phase-plan)
    and confirm its dependencies are marked complete.
    > ⚠️ **Prerequisite for Ben & James (or any agent working on their behalf):** you need
    > your own free Groq API key before any agent code will actually run — the router, all
-   > three specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`. Sign up
+   > four specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`
+   > (**being retired 2026-08-16 — see the callout above**). Sign up
    > at https://console.groq.com, create a key, copy `.env.example` → `.env`, and paste it in
    > as `GROQ_API_KEY=`. `.env` is gitignored — never commit it. **As of Phase 4c this is a
    > harder blocker than before:** the router itself is now LLM-primary, so without a key
    > `classify()` returns CLARIFY for every question (verified) — there's no regex fallback
    > left except RED_FLAG. Delete this notice once both of you have confirmed your keys work
    > (e.g. a phase-results block says so).
+   >
+   > **Optional second key:** `GOOGLE_API_KEY` (free, https://aistudio.google.com/apikey)
+   > enables the photo-upload feature only — Groq has no vision-capable model on this
+   > account (D18). Text questions work fine without it.
 2. **While working:** follow the interface contracts in [§5](#5-module-contracts--work-in-parallel-safely)
    exactly. They exist so phases can proceed in parallel without merge pain. If you must
    change a contract, update this file in the same PR and flag it in the PR description.
@@ -875,6 +1071,16 @@ Add rows as edge cases emerge (log the addition in §10).
 | D11 | 2026-07-14 | Router redesigned to be LLM-primary (deletes D9's weighted-regex 3-way scorer, same day); RED_FLAG remains the sole regex | The hand-tuned cue lists were brittle and needed constant patching per phrasing (a real bug: "stitches come out" missed a cue meant to catch "stitches out") and would only get worse as more specialists/phrasings are added; a classifier generalizes without new patterns. Trade-off accepted deliberately: routing is no longer free (one Groq call per non-RED_FLAG question) and now hard-depends on `GROQ_API_KEY` being set — a safety gate (RED_FLAG) is the one thing that must never depend on that, so it alone stays regex (D5 unchanged) |
 | D12 | 2026-07-15 | Phase 5 UI stays Streamlit (polished with custom CSS), not a different framework | Considered Chainlit and a custom FastAPI+web frontend; rejected both for now — D1 already committed the whole team to mirroring the course reference stack, Evan/James's setup docs assume Streamlit, and it's the fastest path to a working demo. Polish (badges, chips, dark/light-aware CSS) addresses the "looks basic" complaint without a framework migration; revisit post-Phase-6 if there's time |
 | D13 | 2026-07-31 | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
+| D13 | 2026-08-02 | Eval-suite judge failures now score 0/`ERROR` instead of a hardcoded perfect score | The previous fail-open behavior meant any infra failure (missing key, rate limit, malformed JSON) silently reported a fabricated 5/5 safety score with `PASS: True` — a claimed "100% pass rate" that was true by construction, not by the system being safe. For health-adjacent software this is the opposite of D5's "safety must not depend on LLM behavior" applied to the safety tests themselves |
+| D14 | 2026-08-02 | GraphRAG's "no match → default to ACL Reconstruction" behavior removed; now returns no match at all | The default meant every synthesized answer, for any question, got ACL-specific contraindications silently stapled onto it regardless of relevance — a direct violation of §7.1's grounding rule. No match now means no injection, consistent with every other specialist's "say you don't have material on it" convention |
+| D15 | 2026-08-02 | `keyword_route_fallback` (added by James the same day as the nutrition merge) now only fires when the LLM's own confidence is below threshold, never to override a confident CLARIFY | It was re-resolving confidently-CLARIFY questions like "What's the best gym?" to a wrong single-specialist guess off one loose keyword match ("gym"), undoing a routing-accuracy gap that had already been found and fixed once (see the Phase 4c results block). A confident CLARIFY means the LLM already looked at the whole question and judged it too vague — a single keyword shouldn't override that |
+| D16 | 2026-08-02 | Security guardrails, unit-economics cost tracking, and honest GraphRAG/CLIP labeling are all now wired into the real product path (`orchestrator.answer_question()` / `app.py`), not left in the unused `src/cli.py` only | Code that only runs from a side script nobody actually uses provides zero real protection/value while still being described as a shipped feature. If a capability is claimed as part of the product, it needs to run on the path real users (and graders) actually exercise |
+| D17 | 2026-08-02 | The WAF-bypassing scrapers' output (`data/pt/unstructured/*.txt`, from Physiopedia via `cloudscraper`) is left in place, unattributed, pending an explicit team decision — not removed unilaterally | Unlike the two clearly-irrelevant PDFs removed in the same pass (a conference sponsorship prospectus, an org strategic plan — objectively wrong content regardless of source ethics), whether to keep bot-protection-bypassing scraped content is a licensing/ethics call the whole team should make knowingly, not something to decide by fiat while fixing unrelated code quality issues |
+| D18 | 2026-08-02 | Photo-upload vision calls go to **Google Gemini**, not Groq — the only place this project uses a second LLM provider | Groq was checked first to keep the stack single-provider (D1's simplification goal). A live query of the account's `/v1/models` returned **no vision-capable model at all** — Llama 4 Scout/Maverick are not on this key, and every available text model rejects image content outright (verified by sending a real image to each). Google AI Studio's free tier supports vision, needs no credit card, and is used for exactly one call per uploaded photo; the router, all four specialists, and synthesis stay entirely on Groq. Note this does NOT re-litigate D2 (which rejected Gemini *embeddings* over rate limits on bulk 100-chunk ingestion) — one image description per upload is a completely different usage pattern. `GOOGLE_API_KEY` is optional: text-only questions work without it |
+| D19 | 2026-08-02 | Uploaded images are converted to a **text description** up front, then fed through the existing pipeline — rather than passing pixels to the specialists | Every specialist answer is grounded in its own retrieved corpus (§7.1); handing four agents raw pixels would bypass that grounding entirely. Describing once, up front, keeps routing/grounding/synthesis architecturally unchanged — the photo just becomes richer context on the question. It also preserves the D5 safety gate: verified live that a photo described as showing "a surgical incision with redness and yellow drainage" trips RED_FLAG's deterministic regex and short-circuits, even when the user's typed question was innocuous ("What exercises can I do?") |
+| D20 | 2026-08-02 | Visual search is **hybrid**: CLIP image-embedding similarity as the primary signal, plus a small filename-keyword bonus | Pure CLIP unlocked ~94% of the image corpus that filename matching could never reach (most images are PDF-extracted with opaque names like `p62_img1.jpg`; verified that a squat *photo* with that exact filename now ranks #1 for "squat exercise form"). But CLIP is trained on natural photographs and measurably under-ranks dense text-heavy instructional diagrams — a labeled "Squats for strengthening your leg muscles" infographic scored below rank 20 for the same query, a case the old filename search *would* have caught. The bonus is capped well below the typical CLIP score spread, so it recovers those diagrams (that one moved to rank #2) without displacing genuine visual matches |
+| D21 | 2026-08-02 | Gemini model pinned to the `gemini-flash-latest` **alias**, not a specific version | Google retires specific Gemini versions for new users aggressively — verified live that `gemini-2.5-flash` already returns "no longer available to new users" on a key created the same day. A pinned version would have shipped broken. The alias tracks whatever current flash model the account can actually reach. (Contrast with Groq, where the reverse discipline applies — see the `llama-3.3-70b-versatile` Aug 16 deprecation note in the audit results block) |
+| D22 | 2026-08-02 | The `llama-3.3-70b-versatile` → replacement-model migration is **deliberately deferred**, not overlooked — flagged prominently at the top of this document instead | Ben's call: land the audit-integrity fixes and the vision work first while that context was fresh, rather than interleave a model swap that needs its own full battery re-verification. The risk of deferring is real and bounded — a hard external cutoff on **2026-08-16**, after which the app stops working entirely — so it is recorded as an explicit deadline callout above §0 rather than left as a to-do buried in a results block. Whoever picks it up should treat it as a verification task, not a two-line edit: router accuracy is model-dependent and two routing regressions have already been caught only by re-running the §9 battery |
 
 ---
 
