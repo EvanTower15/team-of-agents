@@ -1,12 +1,20 @@
 """
 src/ingest.py — CLI to build one agent's knowledge base from its data folder.
 
-    python -m src.ingest --agent pt              # data/pt/      → pt_docs
-    python -m src.ingest --agent trainer         # data/trainer/ → trainer_docs
+    python -m src.ingest --agent pt              # data/pt/        → pt_docs
+    python -m src.ingest --agent trainer         # data/trainer/   → trainer_docs
+    python -m src.ingest --agent surgeon         # data/surgeon/   → surgeon_docs
+    python -m src.ingest --agent nutrition       # data/nutrition/ → nutrition_kb
     python -m src.ingest --agent pt --fresh      # clear pt_docs first, then build
+    python -m src.ingest --agent pt --scrape     # re-fetch the corpus first, then build
 
-Each agent's collection is independent (PROJECT_PLAN.md decision D3): rebuilding
-the PT knowledge base never touches the trainer's, and vice versa.
+One agent per invocation (there is no --agent all); the four collections are
+independent by design (PROJECT_PLAN.md decision D3), so rebuilding the PT
+knowledge base never touches the trainer's, and vice versa.
+
+``--scrape`` runs that agent's src/scrapers/ collectors before ingesting, and is
+wired for the pt and nutrition corpora only — the surgeon and trainer corpora are
+pre-curated files committed to git (see Capabilities_Overview.md §3 for why).
 """
 
 from __future__ import annotations

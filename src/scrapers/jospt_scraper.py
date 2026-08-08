@@ -1,3 +1,13 @@
+"""
+src/scrapers/jospt_scraper.py — JOSPT Clinical Practice Guideline fetcher.
+
+Downloads open-access CPG PDFs from the Journal of Orthopaedic & Sports Physical
+Therapy into the PT corpus. Uses Playwright rather than requests because JOSPT's
+WAF answers plain HTTP clients with 403.
+
+Run indirectly: python -m src.ingest --agent pt --scrape
+"""
+
 import time
 from pathlib import Path
 from bs4 import BeautifulSoup

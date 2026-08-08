@@ -1,16 +1,22 @@
 """
 app.py — Streamlit chat UI for the Recovery Team (Phase 5).
 
-The ONLY thing this file touches from the backend is answer_question() (§5.4
+The ONLY backend answer path this file touches is answer_question() (§5.4
 contract) -- no agent, router, or orchestrator internals leak into the UI.
 Polished styling on top of Streamlit's defaults (custom CSS for message
 bubbles and specialist badges) rather than a different framework, so setup
 stays exactly `pip install -r requirements.txt` for the whole team.
 
-Run:
+Chat history is persisted to SQLite through src/database.py, so a user can keep
+several conversations going -- each browser tab holds its own active session --
+and reload any of them from the sidebar later. Streamlit session_state stays the
+render cache; the database is the source of truth across reloads.
+
+Run (one ingest per specialist — there is no --agent all):
     python -m src.ingest --agent pt
     python -m src.ingest --agent trainer
     python -m src.ingest --agent surgeon
+    python -m src.ingest --agent nutrition
     streamlit run app.py
 """
 
@@ -18,9 +24,22 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 import streamlit as st
 
+from src.business.unit_economics import CostCalculator
+from src.database import (
+    create_session,
+    delete_session,
+    get_session,
+    get_session_transcripts,
+    init_db,
+    list_sessions,
+    save_result,
+    session_stats,
+    transcript_meta,
+)
 from src.orchestrator import answer_question
 
 
@@ -78,8 +97,22 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Create the DB file/tables if needed. Cheap on every rerun -- the engine is
+# cached per URL inside src/database.py.
+init_db()
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "session_id" not in st.session_state:
+    # Created lazily on the first saved turn, so merely opening the page (or a
+    # second tab) never leaves an empty conversation in the sidebar.
+    st.session_state.session_id = None
+
+if "persist_error" not in st.session_state:
+    # A failed write must not silently swallow the turn; stash it here so it
+    # survives the st.rerun() and can be surfaced in the sidebar.
+    st.session_state.persist_error = None
 
 
 def _badges_html(agents_consulted: list[str]) -> str:
@@ -105,6 +138,82 @@ def _run_ingest(agent: str, fresh: bool = True) -> tuple[bool, str]:
     return ok, output.strip()[-1500:]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Chat persistence glue (all DB access goes through src/database.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _messages_from_transcripts(transcripts: list) -> list[dict]:
+    """Rebuild st.session_state.messages from persisted turns.
+
+    Route, badges, sources, binding restrictions, and the debug trace are all
+    stored, so a reloaded turn renders exactly like a live one. Matched exercise
+    images are the one exception -- they're a CLIP lookup, not part of the answer,
+    so replayed turns carry a `from_history` flag and skip that search rather
+    than paying for one embedding pass per historical message on every rerun.
+    """
+    messages: list[dict] = []
+    for t in transcripts:
+        messages.append({"role": "user", "content": t.user_query})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": t.agent_response or "",
+                "meta": transcript_meta(t),
+                "from_history": True,
+            }
+        )
+    return messages
+
+
+def _cost_meta(question: str, answer: str) -> dict:
+    """Estimated token/cost metrics for one turn (the estimator src/cli.py uses)."""
+    cost = CostCalculator.calculate_query_cost(question, answer)
+    return {
+        "tokens": {
+            "input_tokens": cost.input_tokens,
+            "output_tokens": cost.output_tokens,
+            "total_tokens": cost.total_tokens,
+        },
+        "cost_usd": cost.groq_cost_usd,
+    }
+
+
+def _persist_turn(question: str, result: dict, cost_meta: dict) -> None:
+    """Save one turn, creating the DB session lazily on the first saved turn."""
+    if st.session_state.session_id is None:
+        st.session_state.session_id = create_session({"client": "streamlit"})
+    save_result(
+        st.session_state.session_id,
+        question,
+        result,
+        tokens=cost_meta["tokens"],
+        cost_usd=cost_meta["cost_usd"],
+    )
+
+
+def _local_stamp(value: datetime | None) -> str:
+    """Format a stored timestamp in the viewer's local time.
+
+    Timestamps are written as UTC but come back from SQLite tz-naive, so they
+    have to be re-tagged before converting — otherwise the sidebar shows a user
+    in Connecticut a time four hours in their future.
+    """
+    if value is None:
+        return "unsaved"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return f"{value.astimezone():%b %d %H:%M}"
+
+
+def _session_label(session) -> str:
+    """Sidebar label: the conversation's title, dated, with a uuid tiebreaker."""
+    return (
+        f"{session.title or 'Untitled chat'} · "
+        f"{_local_stamp(session.updated_at)} · {session.session_id[:6]}"
+    )
+
+
 with st.sidebar:
     st.markdown("## 🩹 Recovery Team")
     st.caption(
@@ -112,6 +221,59 @@ with st.sidebar:
         "Gym Trainer, and Nutritionist. Ask one question; a planner picks who "
         "answers and in what order."
     )
+
+    st.divider()
+    st.markdown("**Conversations**")
+
+    if st.session_state.persist_error:
+        st.warning(f"Last turn was not saved: {st.session_state.persist_error}")
+
+    _sid = st.session_state.session_id
+    if _sid:
+        _stats = session_stats(_sid)
+        _active = get_session(_sid)
+        st.caption(
+            f"Active: **{(_active.title if _active else None) or 'New chat'}** · "
+            f"{_stats['turns']} turn{'' if _stats['turns'] == 1 else 's'} · "
+            f"{_stats['total_tokens']:,} tokens · ${_stats['cost_usd']:.4f}"
+        )
+    else:
+        st.caption("Active: _new chat (nothing saved yet)_")
+
+    if st.button("🧹 New chat", use_container_width=True):
+        # Leaves the current conversation on disk; the next question starts a
+        # fresh session row.
+        st.session_state.session_id = None
+        st.session_state.messages = []
+        st.session_state.persist_error = None
+        st.rerun()
+
+    # Reloading a past conversation is an explicit button (not the selectbox's
+    # own change event) so that browsing the list never clobbers the open chat.
+    _past = [s for s in list_sessions(limit=25) if s.session_id != _sid]
+    if _past:
+        _labels = {s.session_id: _session_label(s) for s in _past}
+        _pick = st.selectbox(
+            "Reopen a past conversation",
+            options=list(_labels.keys()),
+            format_func=lambda i: _labels[i],
+        )
+
+        _open_col, _del_col = st.columns([3, 1])
+        with _open_col:
+            if st.button("📂 Open", use_container_width=True):
+                st.session_state.session_id = _pick
+                st.session_state.messages = _messages_from_transcripts(
+                    get_session_transcripts(_pick)
+                )
+                st.session_state.persist_error = None
+                st.rerun()
+        with _del_col:
+            if st.button("🗑️", help="Delete the selected conversation", use_container_width=True):
+                delete_session(_pick)
+                st.rerun()
+    else:
+        st.caption("No other saved conversations yet.")
 
     st.divider()
     st.markdown("**Knowledge bases**")
@@ -157,11 +319,6 @@ with st.sidebar:
                 st.caption("No exchanges yet this session.")
         except Exception as exc:
             st.caption(f"(unit economics unavailable: {exc})")
-
-    st.divider()
-    if st.button("Clear chat", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
 
 st.title("Recovery Team")
 st.caption(
@@ -214,15 +371,30 @@ for msg in st.session_state.messages:
                     for line in meta["execution_trace"]:
                         st.code(line, language=None)
 
-            try:
-                matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
-                if matched_imgs:
-                    with st.expander("🖼️ Visual Guides & Diagrams"):
-                        for img in matched_imgs:
-                            st.caption(f"**{img['title']}**")
-                            st.image(img["file_path"], use_container_width=True)
-            except Exception as exc:
-                st.caption(f"(visual search unavailable: {exc})")
+            tokens = meta.get("tokens") or {}
+            if tokens.get("total_tokens"):
+                st.caption(
+                    f"🪙 {tokens['total_tokens']:,} tokens "
+                    f"(in {tokens.get('input_tokens', 0):,} / out {tokens.get('output_tokens', 0):,}) "
+                    f"· ${meta.get('cost_usd', 0.0):.6f}"
+                )
+
+            # Reloaded turns skip the CLIP lookup: it is a live image-embedding
+            # search over the whole visuals corpus, not part of the saved answer,
+            # so replaying it would cost one search per historical message on
+            # every rerun (see _messages_from_transcripts).
+            if msg.get("from_history"):
+                st.caption("↩️ Reloaded from saved history — ask again to regenerate visual guides.")
+            else:
+                try:
+                    matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
+                    if matched_imgs:
+                        with st.expander("🖼️ Visual Guides & Diagrams"):
+                            for img in matched_imgs:
+                                st.caption(f"**{img['title']}**")
+                                st.image(img["file_path"], use_container_width=True)
+                except Exception as exc:
+                    st.caption(f"(visual search unavailable: {exc})")
 
 _submission = st.chat_input(
     "Ask about an injury, rehab, or getting back into training...",
@@ -289,6 +461,7 @@ if question:
         st.markdown(_badges_html(result["agents_consulted"]), unsafe_allow_html=True)
         st.markdown(result["final_answer"])
 
+    cost_meta = _cost_meta(question, result["final_answer"])
     st.session_state.messages.append(
         {
             "role": "assistant",
@@ -300,7 +473,17 @@ if question:
                 "sources": result["sources"],
                 "constraints": result.get("constraints", {}),
                 "execution_trace": result["execution_trace"],
+                **cost_meta,
             },
         }
     )
+
+    # Persist after the answer is already on screen and in session_state: a DB
+    # problem should cost the user the history row, never the answer itself.
+    try:
+        _persist_turn(question, result, cost_meta)
+        st.session_state.persist_error = None
+    except Exception as exc:  # surfaced in the sidebar, survives the rerun below
+        st.session_state.persist_error = f"{type(exc).__name__}: {exc}"
+
     st.rerun()

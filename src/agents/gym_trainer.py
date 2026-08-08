@@ -5,9 +5,11 @@ Knowledge base: data/trainer/ -> Chroma collection `trainer_docs`
 (see data/SOURCES.md). Build it with:  python -m src.ingest --agent trainer --fresh
 Test standalone: python -m src.agents.gym_trainer "Give me a 3-day beginner program"
 
-On the TEAM route the orchestrator passes the Physical Therapist's draft as
-``peer_context`` — the base class injects it as binding constraints (decision D4),
-and the persona below reinforces the deference.
+On the TEAM route the trainer is consulted third, after the Orthopedic Surgeon and
+the Physical Therapist, and receives whichever of their drafts ran as
+``peer_context`` — the base class injects them as binding constraints (decision D4),
+and the persona below reinforces the deference. Only the Nutritionist sits
+downstream of the trainer.
 
 The §7.1 grounding rule is enforced by the base class. consult() never raises.
 """
