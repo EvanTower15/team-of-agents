@@ -81,7 +81,10 @@ def _render_observability() -> None:
     c1.metric("Model calls", f"{s['calls']:,}")
     c2.metric("Tokens (real)", f"{s['tokens']:,}")
     c3.metric("Avg latency", f"{s['avg_latency_ms']:,} ms")
-    c4.metric("Rate-limit hits", f"{s['rate_limits']:,}")
+    c4.metric("Throttled calls", f"{s.get('throttled', 0):,}",
+              help=f"Calls slower than {telemetry.SLOW_CALL_MS // 1000}s. Counting 429s does "
+                   "NOT detect Groq throttling -- the SDK retries below the callback layer, so "
+                   "the call succeeds and no error is ever raised. Latency is the only signal.")
 
     # The ceiling that actually stalls a live demo. The 200k/day cap is the one
     # everyone notices; 8k/minute on gpt-oss-120b is the one that makes the
@@ -113,6 +116,7 @@ def _render_observability() -> None:
             pd.DataFrame(rows).rename(columns={
                 "node": "Stage", "calls": "Calls", "tokens": "Tokens",
                 "avg_latency_ms": "Avg ms", "rate_limits": "429s",
+                "throttled": "Throttled",
             }),
             use_container_width=True, hide_index=True,
         )

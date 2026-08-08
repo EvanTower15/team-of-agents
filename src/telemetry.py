@@ -16,12 +16,16 @@ from the provider rather than inferred from string length.
 It also records what the heuristic could never see:
 
 * **Latency per call**, so slow stages are identifiable rather than guessed at.
-* **HTTP failures, especially 429.** Groq's free tier caps `gpt-oss-120b` at
-  8,000 tokens/minute. Two specialist consults — each carrying ~6 retrieved
-  chunks plus accumulated upstream drafts — can exhaust that, after which the
-  client backs off *silently*. From the UI that is indistinguishable from a
-  hang. Counting 429s and plotting tokens/minute against the ceiling is what
-  turns "it froze" into "it was rate-limited, here is the evidence".
+* **Throttling — which does NOT arrive as an error.** Groq's free tier caps
+  `gpt-oss-120b` at 8,000 tokens/minute, and a single specialist question
+  already exceeds that. But the SDK absorbs the retry below the callback layer,
+  so the request eventually *succeeds*: `on_llm_error` never fires and the 429
+  count stays at zero. Measured: a three-specialist TEAM question took 204s
+  with **zero** recorded rate-limit errors while individual calls took 30s+.
+  **Latency is the only observable signature**, which is why `SLOW_CALL_MS`
+  exists and why the UI reports "throttled calls" rather than "429s". Plotting
+  tokens/minute against the ceiling is what turns "it froze" into "it was
+  throttled, here is the evidence".
 
 Design constraints this respects:
 
@@ -54,6 +58,17 @@ DB_PATH = _REPO_ROOT / "data" / "chat_history.db"
 # limit that actually bites during a TEAM question -- the 200k/day cap is the
 # one everyone notices, but per-minute is what stalls a live demo.
 TPM_LIMIT_120B = 8000
+
+# A call taking longer than this is almost certainly being throttled rather than
+# thinking. Measured baseline: an unthrottled specialist consult returns in
+# ~1-4s; under throttling the same call takes 30s+.
+#
+# This threshold exists because counting 429s does NOT detect Groq throttling.
+# The SDK retries below the callback layer, so the request eventually SUCCEEDS
+# and on_llm_error never fires -- a measured four-specialist TEAM question took
+# 204s with ZERO recorded rate-limit errors while individual calls took 30s+.
+# Latency is the only observable signature we get.
+SLOW_CALL_MS = 10_000
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_calls (
@@ -216,16 +231,20 @@ def summary() -> dict:
     """Totals since the table was created."""
     rows = _query(
         "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(is_rate_limit),0),"
-        " COALESCE(AVG(latency_ms),0) FROM llm_calls"
+        " COALESCE(AVG(latency_ms),0),"
+        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        " FROM llm_calls",
+        (SLOW_CALL_MS,),
     )
     if not rows:
-        return {"calls": 0, "tokens": 0, "rate_limits": 0, "avg_latency_ms": 0}
-    calls, tokens, rls, avg = rows[0]
+        return {"calls": 0, "tokens": 0, "rate_limits": 0, "avg_latency_ms": 0, "throttled": 0}
+    calls, tokens, rls, avg, slow = rows[0]
     return {
         "calls": calls or 0,
         "tokens": tokens or 0,
-        "rate_limits": rls or 0,
+        "rate_limits": rls or 0,   # explicit 429s -- usually 0, see SLOW_CALL_MS
         "avg_latency_ms": int(avg or 0),
+        "throttled": slow or 0,    # the metric that actually detects throttling
     }
 
 
@@ -233,12 +252,15 @@ def by_node() -> list[dict]:
     """Per-stage totals -- which architectural decision costs what."""
     rows = _query(
         "SELECT node, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(AVG(latency_ms),0),"
-        " COALESCE(SUM(is_rate_limit),0) FROM llm_calls GROUP BY node"
-        " ORDER BY SUM(total_tokens) DESC"
+        " COALESCE(SUM(is_rate_limit),0),"
+        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        " FROM llm_calls GROUP BY node ORDER BY SUM(total_tokens) DESC",
+        (SLOW_CALL_MS,),
     )
     return [
         {"node": r[0], "calls": r[1], "tokens": r[2],
-         "avg_latency_ms": int(r[3] or 0), "rate_limits": r[4]}
+         "avg_latency_ms": int(r[3] or 0), "rate_limits": r[4],
+         "throttled": r[5] or 0}
         for r in rows
     ]
 

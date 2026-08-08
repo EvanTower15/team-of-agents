@@ -137,29 +137,50 @@ the measurement.
 2. **The planner is almost free** (453 tokens). Putting routing and planning on the small model was
    the right call, and now there is a number proving it rather than an assertion.
 
-## 0.3b ⚠️✱ THE REAL CONSTRAINT IS PER-MINUTE, NOT PER-DAY — this is what will stall the demo
+## 0.3b ⚠️✱ THROUGHPUT IS THE BOTTLENECK, NOT COST — and it does not raise an error
 
-Yesterday's revision blamed the 200,000 token/**day** cap. That was the wrong villain. The one that
-actually bites is **8,000 tokens per MINUTE on `gpt-oss-120b`** (verified live from
-`x-ratelimit-limit-tokens`).
+**Measured, live, three-specialist TEAM question:**
 
-**Even a single-specialist question — 11,564 tokens — exceeds a full minute of budget.** When it is
-exhausted the client backs off *silently*, which from the UI is indistinguishable from a hang. We
-hit exactly this during testing: the app sat on "Consulting the care team…" and looked frozen. It
-was not frozen; it was waiting.
+| | |
+|---|---|
+| Wall clock | **204.8 s (3 min 25 s)** |
+| Model calls | **14** |
+| Real tokens | **38,141** |
+| Recorded 429s | **0** |
 
-A four-specialist TEAM question is several times that volume, so **beat 2 of the demo is minutes,
-not the "30–60 seconds" the script claims.**
+Read that last row twice. **Three and a half minutes, and not one rate-limit error.**
+
+`gpt-oss-120b` is capped at **8,000 tokens/minute** on the free tier, and this question used 38,141.
+But Groq does not reject the excess — it *stalls* the request, and the SDK absorbs the retry below
+the callback layer, so the call eventually succeeds. No 429 is ever raised. The only signature is
+latency:
+
+| Stage | Avg latency |
+|---|---|
+| `extract_constraints:nutrition` | **34,714 ms** |
+| `consult:nutrition` | **30,643 ms** |
+| `peer_consult` | **18,512 ms** |
+| `consult:surgeon` | 1,080 ms |
+
+An unthrottled consult returns in ~1–4 s. Under throttling the *same* call takes 30 s+. That is why
+the Observability tab counts **"throttled calls"** (over 10 s) rather than 429s — counting errors
+finds nothing.
+
+**This is a genuinely good 20 seconds on stage.** "Our monitoring showed zero errors while the
+system was visibly broken" is a real observability lesson, and the fix — measure latency, not just
+error rate — is the kind of thing a graduate audience will recognise.
+
+> **Correction worth noting internally:** an earlier draft of this plan said the client "backs off
+> silently" and that we should count 429s. The effect was right, the mechanism was wrong, and the
+> metric it implied would have read zero. Caught by actually measuring.
 
 → **Action, in priority order:**
-1. **Upgrade to a paid Groq tier for the presentation window.** Highest leverage, costs a few
-   dollars, removes the failure mode entirely.
-2. **Drop `k` from 6 to 3 for the demo.** Retrieved context dominates each consult's input tokens;
-   this roughly halves them.
-3. **Pick a flagship question that wakes 2–3 specialists, not 4.** Still shows planning, tools, and
-   constraint handoff, at a fraction of the tokens.
-4. Keep the Observability tab open on a second monitor — if it does stall, you can *show* the
-   ceiling being hit instead of apologising.
+1. **Upgrade to a paid Groq tier for the presentation window.** Highest leverage, a few dollars,
+   removes the failure mode. **Beat 2 is currently 3.5 minutes of a 6-minute demo.**
+2. **Drop `k` from 6 to 3 for the demo.** Retrieved context dominates each consult's input tokens.
+3. **Pick a flagship question that wakes 2–3 specialists.** This one already only woke three
+   (surgeon → PT → nutritionist); the trainer was not selected.
+4. Keep the Observability tab open on a second monitor. If it stalls, *show* the ceiling.
 
 ## 0.4 ✱ One old limitation is now fixed — do not read it off the old slide
 
@@ -549,16 +570,21 @@ route_question:     TEAM (0.97, llm) - All specialists needed for safe
 plan_consultation:  surgeon -> pt -> nutrition (llm) - The surgeon must
                     first establish post-operative restrictions and safe
                     weight-bearing limits. The physical therapist then
-                    builds on those limits...
-consult_surgeon:    6 source(s), tools=['weeks_post_op_phase']
-consult_pt:         5 source(s), 1 upstream draft(s) as peer_context
-consult_nutrition:  4 source(s), 2 upstream draft(s) as peer_context,
-                    tools=['protein_target']
-peer_consult:       trainer -> surgeon: "What are the post-operative
-                    weight-bearing status and ROM restrictions?"
-synthesize:         merged 3 drafts
-compliance_check:   checked, compliant
+                    builds on those limits to guide safe lifting
+                    progression. Nutrition can then advise...
+consult_surgeon:    6 source(s)
+consult_pt:         3 source(s), 1 upstream draft(s) as peer_context
+consult_nutrition:  2 source(s), 2 upstream draft(s) as peer_context,
+                    tools=['search_my_corpus', 'search_my_corpus']
+peer_consult:       pt -> surgeon: "Is the patient cleared to begin light
+                    resistance training at 8 weeks post-meniscus repair?"
+                    (4 source(s))
+synthesize_team_answer: merged 5 draft(s)
+compliance_check:   no constraint conflicts found
 ```
+
+> **✱ This trace is verbatim from a live run on 2026-08-08 — not reconstructed.** 14 model calls,
+> 38,141 tokens, 204.8 seconds.
 
 **Speaker note:** "Read the second line. The planner didn't just pick three specialists — it
 *explained its ordering*, and that reasoning is in the trace. Then look at line four: the surgeon
@@ -837,9 +863,11 @@ an ordering invariant that survives a learned planner.
 
 ## Timing reality
 
-A **TEAM** question fires **12–18 sequential Groq calls**. Expect **30–60 seconds of spinner** on
-beat 2 — *longer than the old plan assumed.* That is a meaningful fraction of your demo, spent
-watching a spinner.
+**✱ MEASURED: a three-specialist TEAM question took 204.8 seconds — 3 minutes 25 seconds.** 14
+calls, 38,141 tokens. On the free tier that is **more than half your entire demo budget spent on one
+question**, because Groq throttles rather than rejects (see 0.3b).
+
+**This is the single biggest risk to the live demo.** Upgrade the Groq tier, or restructure beat 2.
 
 **Turn the latency into content.** Type, press Enter, and *keep talking*. The beat-2 narration is
 written to be delivered over the wait. Never stand in silence, and never apologize for it.
@@ -1175,7 +1203,8 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Groq calls, 4-specialist TEAM** | **12–18** ✱ — was 7–9 before the planner/tools |
 | Groq calls, single specialist | ~3 (router + planner + consult) ✱ |
 | Groq calls, RED_FLAG | **0** |
-| **⚠️ Free-tier PER-MINUTE cap** ✱ | **8,000 tokens/min on `gpt-oss-120b`** — verified from `x-ratelimit-limit-tokens`. **This is the binding constraint, not the daily cap.** One single-specialist question (11,564 tokens) exceeds a full minute of budget |
+| **⚠️ Free-tier PER-MINUTE cap** ✱ | **8,000 tokens/min on `gpt-oss-120b`** — verified from `x-ratelimit-limit-tokens`. **The binding constraint, not the daily cap.** Groq *stalls* rather than rejecting, so this raises **no 429** — only latency |
+| **Measured, 3-specialist TEAM** ✱ | **204.8 s · 14 calls · 38,141 tokens · 0 recorded 429s.** Worst stages: `extract_constraints:nutrition` 34.7 s, `consult:nutrition` 30.6 s (vs `consult:surgeon` 1.1 s unthrottled) |
 | Free-tier daily cap | 200,000 tokens/day — verified by hitting it |
 | **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
