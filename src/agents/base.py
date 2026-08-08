@@ -1,9 +1,11 @@
 """
 src/agents/base.py — SpecialistAgent, the base class every specialist extends.
 
-Contract frozen in PROJECT_PLAN.md §5.2. Concrete agents (physical_therapist.py,
-gym_trainer.py, later orthopedic_surgeon.py) only supply identity fields and a
-persona prompt, plus a two-line ``__main__`` CLI via run_cli().
+Contract frozen in PROJECT_PLAN.md §5.2. All four concrete agents
+(physical_therapist.py, gym_trainer.py, orthopedic_surgeon.py, nutritionist.py)
+only supply identity fields and a persona prompt, plus a two-line ``__main__``
+CLI via run_cli() — the retrieval, prompt assembly, grounding rule, and
+error handling all live here.
 
 Safety design (PROJECT_PLAN.md §7):
   * The grounding rule (§7.1) is enforced HERE, in the base prompt template —
@@ -11,7 +13,13 @@ Safety design (PROJECT_PLAN.md §7):
   * consult() NEVER raises. Errors land in the returned ``error`` field so one
     failing agent can never crash the orchestrator graph (opim-5517 convention).
   * ``peer_context`` is the agent-to-agent handoff (decision D4): on the TEAM
-    route the trainer receives the PT's draft and must respect its constraints.
+    route each specialist receives every upstream specialist's draft (plus its
+    structured constraints) and must respect them. The chain runs
+    most-restrictive-first by default — surgeon, PT, trainer, nutritionist — so a
+    downstream agent is normally the more deferential voice. Since D28 the order
+    is chosen per question by the planner rather than fixed by graph edges, so
+    that is a strong default, not a guarantee; compliance_check is what verifies
+    the finished answer against every constraint regardless of order (D30).
 
 Tool calling (D29). Specialists can now call tools rather than answering from
 a single prompt in one shot:

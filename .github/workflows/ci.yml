@@ -5,6 +5,13 @@ on:
     branches: [ main, Rough-Draft-of-Rest-of-Project ]
   pull_request:
     branches: [ main, Rough-Draft-of-Rest-of-Project ]
+  # Lets the live suite (below) be triggered by hand from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: "Also run the live Groq integration suite (spends daily tokens)"
+        type: boolean
+        default: false
 
 jobs:
   lint:
@@ -32,7 +39,7 @@ jobs:
         flake8 src/ tests/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
   test:
-    name: Pytest Suite & E2E Benchmark
+    name: Pytest Suite (offline)
     runs-on: ubuntu-latest
     needs: lint
 
@@ -50,8 +57,58 @@ jobs:
         pip install -r requirements.txt
         pip install pytest pytest-cov
 
-    - name: Run Pytest Suite
+    # Deliberately excludes the `live` marker (see pytest.ini). Those tests need
+    # a real GROQ_API_KEY *and* built Chroma collections; this runner has
+    # neither, so before this split they failed on every push and one of them
+    # passed for the wrong reason -- it matched "surgeon" inside the fallback
+    # answer's "python -m src.ingest --agent surgeon".
+    - name: Run Offline Pytest Suite
+      run: |
+        pytest tests/ -v -m "not live"
+
+  live:
+    name: Live integration suite (Groq + built indexes)
+    runs-on: ubuntu-latest
+    needs: lint
+    # Never on push/PR: this spends the free-tier daily token budget and its
+    # assertions depend on LLM phrasing. Run it on purpose from the Actions tab.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_live
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+
+    - name: Fail early if no key is configured
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: |
-        pytest tests/ -v
+        if [ -z "$GROQ_API_KEY" ]; then
+          echo "::error::GROQ_API_KEY secret is not set, so every live test would"
+          echo "::error::fall back and fail. Add it under Settings > Secrets > Actions."
+          exit 1
+        fi
+
+    # chroma_db/ is gitignored, so the collections must be built here or every
+    # specialist retrieval raises FileNotFoundError and the graph falls back.
+    # Embeddings are local (no API cost); this is CPU time, not tokens.
+    - name: Build the four knowledge bases
+      run: |
+        for agent in pt trainer surgeon nutrition; do
+          python -m src.ingest --agent "$agent"
+        done
+
+    - name: Run Live Pytest Suite
+      env:
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      run: |
+        pytest tests/ -v -m live

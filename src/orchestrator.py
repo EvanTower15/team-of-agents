@@ -522,6 +522,9 @@ def ask_clarification(state: TeamState) -> dict:
 
 
 def fallback_handler(state: TeamState) -> dict:
+    # Every specialist that can run must be listed here, or its failure reason is
+    # silently dropped and the user gets "no usable evidence" instead of the real
+    # cause (which is often an unbuilt knowledge base, with the fix in the text).
     reasons = [
         r["error"]
         for r in (

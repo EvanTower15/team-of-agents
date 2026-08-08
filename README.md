@@ -8,6 +8,8 @@ A team of 4 specialist RAG agents that helps patients safely recover from an inj
 
 Each agent answers from its own domain-siloed knowledge base, augmented by **GraphRAG multi-hop clinical knowledge graphs**, **CLIP multimodal visual exercise matching**, **Security Guardrail scanners**, and **Business Unit Economics tracking**.
 
+Conversations are **persisted to a local SQLite database**, so you can keep several recovery scenarios going at once and reopen any of them from the sidebar after a reload — each one comes back with its specialist badges, sources, and binding restrictions.
+
 > **Start here → [PROJECT_PLAN.md](PROJECT_PLAN.md)** — living status, architecture, module contracts, and phase plan.
 >
 > **Capabilities Overview → [Capabilities_Overview.md](Capabilities_Overview.md)** — in-depth technical explanation of GraphRAG, Multimodal Visual RAG, Security, and Unit Economics.
@@ -28,12 +30,17 @@ cp .env.example .env   # then paste your free Groq key (console.groq.com)
 ## Ingest & Run
 
 ```bash
-# Rebuild all 4 specialist vector store indexes
-python -m src.ingest --agent all
+# Build the 4 specialist vector store indexes (one agent per invocation)
+python -m src.ingest --agent pt
+python -m src.ingest --agent trainer
+python -m src.ingest --agent surgeon
+python -m src.ingest --agent nutrition
 
 # Launch Streamlit web interface
 streamlit run app.py
 ```
+
+Chat history is written to `data/chat_history.db` (gitignored) the first time you ask a question. Use the sidebar's **Conversations** block to start a new chat, reopen a past one, or delete one; set `CHAT_DB_URL` to point the app at a different database file.
 
 ## E2E CLI & Automated Test Suite
 

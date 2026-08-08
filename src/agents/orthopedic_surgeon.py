@@ -8,7 +8,9 @@ Test standalone: python -m src.agents.orthopedic_surgeon "How long until I can p
 
 On the TEAM route the surgeon consults first (most-restrictive voice) and the
 orchestrator passes its draft -- and the structured constraints extracted from
-it (src/agents/constraints.py) -- down the chain to the PT, then the trainer.
+it (src/agents/constraints.py) -- down the chain to the PT, then the trainer,
+then the nutritionist. Its restrictions win synthesis conflicts on post-op,
+hardware, and weight-bearing precautions (decision D10).
 
 The section 7.1 grounding rule is enforced by the base class. consult() never raises.
 """

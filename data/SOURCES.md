@@ -145,35 +145,70 @@ Only `nhs.uk` main-domain pages were used for NHS content (not individual NHS Tr
 subdomains like `guysandstthomas.nhs.uk`, which are separate legal entities not
 necessarily under the same OGL terms) — consistent with the PT/trainer corpora.
 
-## data/nutrition/ — Nutritionist corpus (fetched 2026-07-30)
+---
+
+## data/nutrition/ — Sports Nutritionist corpus (fetched 2026-07-30)
 
 | File | Source | License |
 |---|---|---|
-| medlineplus_diet_and_wound_healing.md | https://medlineplus.gov/ency/article/002458.htm | PD |
-| medlineplus_minerals.md | https://medlineplus.gov/ency/article/002467.htm | PD |
-| medlineplus_protein_in_diet.md | https://medlineplus.gov/ency/article/002470.htm | PD |
-| medlineplus_vitamins.md | https://medlineplus.gov/ency/article/002404.htm | PD |
 | nih_ods_calcium.md | https://ods.od.nih.gov/factsheets/Calcium-Consumer/ | PD |
 | nih_ods_exercise_and_athletic_performance.md | https://ods.od.nih.gov/factsheets/ExerciseAndAthleticPerformance-Consumer/ | PD |
 | nih_ods_omega3.md | https://ods.od.nih.gov/factsheets/Omega3FattyAcids-Consumer/ | PD |
 | nih_ods_vitamin_c.md | https://ods.od.nih.gov/factsheets/VitaminC-Consumer/ | PD |
 | nih_ods_vitamin_d.md | https://ods.od.nih.gov/factsheets/VitaminD-Consumer/ | PD |
 | nih_ods_zinc.md | https://ods.od.nih.gov/factsheets/Zinc-Consumer/ | PD |
+| medlineplus_diet_and_wound_healing.md | https://medlineplus.gov/ency/article/002458.htm | PD |
+| medlineplus_minerals.md | https://medlineplus.gov/ency/article/002467.htm | PD |
+| medlineplus_protein_in_diet.md | https://medlineplus.gov/ency/article/002470.htm | PD |
+| medlineplus_vitamins.md | https://medlineplus.gov/ency/article/002404.htm | PD |
 
-All nine text files are US federal government sources (MedlinePlus, NIH Office of
-Dietary Supplements) — public domain, same convention as the rest of this project.
-Provenance (source URL, title, fetch timestamp) is also embedded as an HTML comment
-header in each file. Logged here 2026-08-02 during an audit pass; the files themselves
-were fetched 2026-07-30 as part of the nutritionist-agent addition and had not yet been
-added to this ledger, breaking §7.5 until now.
+All 10 text files are US federal government sources (NIH Office of Dietary Supplements,
+MedlinePlus) — public domain, same convention as the rest of this project. Two independent
+passes added this section (an audit pass on 2026-08-02 and the persistence branch on
+2026-07-31, which is why an earlier draft said "nine"); the table above is the merged,
+de-duplicated list and matches the 10 files actually on disk.
 
-**`visuals/` (images), caveat:** `USDA_Food_Pyramidgif.webp` and
-`USDA_MyPlate_greensvg.webp` come from `src/scrapers/nutrition_media_scraper.py`, which
-queries the Wikimedia Commons search API for terms like "MyPlate" / "Food pyramid" and
-downloads whatever image results come back with an `image/*` mime type. Unlike every
-text source above, **the specific license of each individual returned image was not
-manually verified** — Commons requires every hosted file to carry *some* free license,
-but they vary (PD/CC0, CC-BY, CC-BY-SA) and reuse terms differ. Two exact duplicate
-files (byte-identical, different names) were found and removed during the same audit
-pass. Flagged as a real gap, not resolved here: if these images ship in a real deliverable,
-verify each one's actual Commons license page before reuse.
+Fetch notes: unlike the other three corpora, this one is **scraper-built rather than
+hand-curated** — `python -m src.ingest --agent nutrition --scrape` runs
+`src/scrapers/nutrition_scraper.py`, which fetches the pages above and writes each one with
+an HTML provenance comment (`Source`, `Title`, `Scraped At`) as its first lines. The rows in
+this table were reconstructed from those headers, so they are the fetcher's own record rather
+than a hand-typed list. NIH ODS uses the *Consumer* fact sheets (plain-language,
+patient-facing) rather than the Health Professional versions, and the MedlinePlus pages are
+encyclopedia articles. No OGL/NHS content here. The files were fetched 2026-07-30 with the
+nutritionist agent but were not logged in this ledger until 2026-08-02, which broke §7.5 in
+the meantime.
+
+Known wart, deliberately not cleaned up: the scraper keeps the pages' site navigation
+boilerplate (menus, "official website of the United States government" banners) in the saved
+markdown, so some chunks are navigation text rather than nutrition content. It degrades
+retrieval precision slightly but never correctness — the grounding rule means a junk chunk
+just doesn't get used.
+
+---
+
+## data/*/visuals/ — Visual assets for CLIP multimodal search
+
+Not logged per file. These folders hold **288 image files** (pt 114, trainer 163, surgeon 9,
+nutrition 2) feeding the CLIP visual search (`src/multimodal/clip_search.py`), which embeds
+the readable subset of them — see the 2026-08-02 vision results block in PROJECT_PLAN.md for
+the indexed count. They come from two automated sources:
+
+| Source | Produced by | License basis |
+|---|---|---|
+| Wikimedia Commons API queries (Blausen Medical anatomy plates, joint/ROM diagrams, exercise-form illustrations, USDA MyPlate & food-pyramid graphics) | `src/scrapers/{surgeon,pt,trainer,nutrition}_media_scraper.py` | free license required by Commons, but **not verified per file** — see below |
+| Figures extracted from the PDFs already in `data/*/` | `src/scrapers/pdf_image_extractor.py` | inherits the parent PDF's license (all PD — see the corpus tables above) |
+
+**Open item, flagged as a real gap rather than resolved here.** The media scrapers query the
+Commons search API for terms like "MyPlate" or "rotator cuff" and download whatever comes back
+with an `image/*` mime type, so **no individual image's license was manually verified**.
+Commons requires every hosted file to carry *some* free license, but they vary (PD/CC0, CC-BY,
+CC-BY-SA) and their reuse terms differ. That is tolerable while the images only ever render
+inside the app; it is not tolerable in a deliverable. **Any image reproduced in the written
+report, slides, or video needs its Commons page checked and attributed first** — CC-BY-SA
+needs a credit line, and the file names (e.g. `Blausen_0597_KneeAnatomy_Side.png`) are enough
+to find the source page.
+
+Housekeeping note (2026-08-02 audit pass): two byte-identical duplicate images in
+`data/nutrition/visuals/` were found by checksum and removed, which is why that folder holds
+2 files rather than the 4 an earlier draft of this section counted.

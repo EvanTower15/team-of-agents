@@ -3,7 +3,8 @@ src/rag_core.py — shared RAG plumbing for every specialist agent.
 
 One Chroma persist directory, one collection per agent (PROJECT_PLAN.md
 decision D3): the PT agent reads only `pt_docs`, the trainer only
-`trainer_docs`. Knowledge siloing per specialist is the core product thesis —
+`trainer_docs`, the surgeon only `surgeon_docs`, the nutritionist only
+`nutrition_kb`. Knowledge siloing per specialist is the core product thesis —
 an agent cannot leak into another's expertise.
 
 Flow (ported from the opim-5517 reference architecture, simplified):
@@ -261,6 +262,28 @@ def _collection_count(collection_name: str) -> int:
         return 0
 
 
+def _agent_flag_for(collection_name: str) -> str:
+    """Reverse-map a collection name to its ``--agent`` flag, for error messages.
+
+    Looks the pairing up in src/ingest.py's AGENT_CORPORA instead of keeping a
+    second copy here: the local copy is exactly what went stale when the surgeon
+    and nutritionist agents were added, so a missing nutrition_kb used to tell
+    the user to run `--agent <agent>`. Imported inside the function because
+    ingest.py imports this module at load time, and wrapped in try/except
+    because this only ever runs while building an error message — a failure here
+    must not replace a helpful error with an unhelpful one.
+    """
+    try:
+        from src.ingest import AGENT_CORPORA
+
+        for flag, (_folder, collection) in AGENT_CORPORA.items():
+            if collection == collection_name:
+                return flag
+    except Exception:
+        pass
+    return "<agent>"
+
+
 def retrieve(question: str, collection_name: str, k: int = 4) -> List:
     """Top-k similarity search over one agent's collection.
 
@@ -272,16 +295,7 @@ def retrieve(question: str, collection_name: str, k: int = 4) -> List:
         # Derived from ingest.py's AGENT_CORPORA rather than a second hardcoded
         # map -- the previous copy went stale when the surgeon and nutrition
         # collections were added, so their errors said "--agent <agent>".
-        # Imported lazily to avoid a circular import at module load.
-        try:
-            from src.ingest import AGENT_CORPORA
-
-            agent_flag = next(
-                (flag for flag, (_, coll) in AGENT_CORPORA.items() if coll == collection_name),
-                "<agent>",
-            )
-        except Exception:
-            agent_flag = "<agent>"
+        agent_flag = _agent_flag_for(collection_name)
         raise FileNotFoundError(
             f"Knowledge base '{collection_name}' has not been built yet. "
             f"Run: python -m src.ingest --agent {agent_flag}"

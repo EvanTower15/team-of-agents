@@ -103,7 +103,9 @@
 > claims are now genuinely real: CLIP image-embedding search actually looks at pixels, and
 > users can upload a photo that a real vision model describes. Built on top of the same-day
 > audit + integrity fix pass (block below), which made the rest of the 2026-07-30 claims
-> true.
+> true. Chat history became **durable and multi-conversation** on 2026-07-31 (Phase 5b, §5.5,
+> D31), and the 4-agent MAS itself — Sports Nutritionist, GraphRAG, visual search, security
+> guardrails, unit economics, E2E CLI, LLM-as-a-judge evaluation — landed 2026-07-30.
 
 ---
 
@@ -277,6 +279,30 @@ Verified: full suite 82/82 on the new models, including the high-risk safety sce
 > `pytest tests/` 38/42 passing (4 failures are a live Groq daily-quota hit mid-session, not
 > code defects — see point 1); router battery 16/16 live; `test_e2e_security_guardrail_blocking`
 > confirms the guardrail wiring works end-to-end through the real orchestrator, not a mock.
+>
+> **Phase 5b results (2026-07-31)** — Evan. Chat history is now **durable and
+> multi-conversation**: `src/database.py` (§5.5, D31) persists `chat_sessions` +
+> `chat_transcripts` to `data/chat_history.db` (SQLAlchemy/SQLite, WAL + FK pragmas,
+> gitignored, `CHAT_DB_URL`-overridable), ported from opim-5517's HW8 persistence module and
+> extended with the multi-agent render metadata this project needs. `app.py` grew a sidebar
+> **Conversations** block — active chat (title · turns · tokens · accumulated Groq spend),
+> "New chat", a picker over the 25 most recently active conversations, explicit Open, and
+> delete — so a user can run several recovery scenarios in parallel (each browser tab holds
+> its own session) and reopen any of them after a reload with badges, sources, binding
+> restrictions, and the debug trace intact. Conversations title themselves from the first
+> question. Persistence deliberately did **not** touch the §5.4 contract or the agents — at
+> the time that meant each question still stood alone, which **D23 changed six days later**
+> by resolving follow-ups against prior turns (see §7 point 4); the two compose, since
+> reopening a conversation is what gives the resolver history to work with.
+> `tests/test_database.py` adds 14 offline tests; `AppTest` verified the five UI flows
+> end-to-end headlessly (42 checks, 0 exceptions); full suite 56 passed.
+>
+> **Overlap with the 2026-08-02 audit pass, for the record:** this branch and that pass
+> independently fixed three of the same things — the missing `data/nutrition/` rows in
+> `data/SOURCES.md`, `fallback_handler` dropping nutrition errors, and the 3-agent
+> orchestrator docstring/diagram. The duplicate work was reconciled when main was merged into
+> the persistence branch on 2026-08-07; the audit pass's versions were kept where they went
+> further (cached visual search, real session-cost computation, the D15 fallback refinement).
 >
 > **Phase 6+ Production System results (2026-07-30)** — Evan, Ben, James. Complete enterprise-grade expansion of the Recovery Team MAS:
 > 1. Added **Sports Nutritionist Agent** 🥗 (`src/agents/nutritionist.py` + `data/nutrition/`) for post-op nutrition, protein targets, and tendon/ligament healing.
@@ -669,7 +695,9 @@ team-of-agents/
 │   │   ├── orthopedic_surgeon.py   # persona + collection binding (Phase 4b)
 │   │   └── constraints.py          # structured constraint extraction (Phase 4b)
 │   ├── router.py              # hybrid rules→LLM route classifier (Phase 4, 4b)
-│   └── orchestrator.py        # LangGraph team workflow (Phase 4, 4b)
+│   ├── orchestrator.py        # LangGraph team workflow (Phase 4, 4b)
+│   └── database.py            # multi-session chat persistence, SQLAlchemy/SQLite (Phase 5b)
+├── data/chat_history.db       # generated, gitignored (WAL sidecars too)
 └── chroma_db/                 # generated, gitignored
 ```
 
@@ -769,6 +797,34 @@ def answer_question(question: str, history: list[dict] | None = None) -> dict:
 ```
 
 `app.py` calls **only** `answer_question()`. Nothing in the UI touches agents directly.
+
+### 5.5 `src/database.py` (Phase 5b) — multi-session chat persistence
+
+Ported from opim-5517's HW8 "Relational Persistence" module (D1 again: reuse what the
+team already understands) and extended for this project's multi-agent turns. Two tables,
+one row per conversation and one row per **turn**:
+
+```python
+init_db(db_url=DEFAULT_DB_URL) -> Engine            # idempotent: tables + WAL/FK pragmas
+create_session(user_metadata=None, *, title=None) -> str        # uuid4 hex session_id
+save_result(session_id, user_query, result, *, tokens=None, cost_usd=None) -> int
+    """Persists one turn straight from §5.4's result dict; back-fills the session
+       title from the first question and bumps updated_at in the same transaction."""
+save_transcript(session_id, user_query, agent_response, route_used, ...) -> int
+get_session_transcripts(session_id) -> list[ChatTranscript]     # chronological
+list_sessions(limit=25) -> list[ChatSession]                    # most recently active first
+session_stats(session_id) -> dict                               # turns, tokens, cost_usd
+rename_session(session_id, title) -> bool
+delete_session(session_id) -> bool                              # drops its transcripts too
+transcript_meta(transcript) -> dict                             # decoded JSON, UI-shaped
+```
+
+`route_used`, `route_confidence`, and the token/cost columns are typed columns (we
+aggregate over them); `agents_consulted`, `sources`, `constraints`, and `execution_trace`
+are JSON text (the UI reads them back whole and never filters on them), so a reloaded
+turn re-renders with the same badges, sources, restrictions, and debug trace as a live
+one. `app.py` owns *no* SQL — it calls these functions, and `transcript_meta()` hands it
+a dict in exactly the shape its renderer already expects.
 
 ---
 
@@ -884,7 +940,10 @@ This is health-adjacent software. Non-negotiables, enforced in code, not vibes:
    personalization that outlives a thread. History is used to make the *current* question
    complete, and is deliberately never injected into specialist prompts — they still
    answer only from retrieved corpus evidence (§7.1), and RED_FLAG still evaluates a
-   complete standalone question.
+   complete standalone question. **Privacy consequence of persistence (D31):** chat history
+   is written to a local SQLite file (`data/chat_history.db`, gitignored, never sent
+   anywhere), so any health detail a user types is on disk in plaintext — acceptable for a
+   local single-user educational demo, a real consideration before any hosted deployment.
 5. **Corpus licensing** — prefer US-government public-domain sources (see §8 Phases 2–3);
    every file in `data/` gets a line in `data/SOURCES.md` (URL, date fetched, license).
    No pirated textbooks, no wholesale scraping of copyrighted commercial sites.
@@ -1038,6 +1097,31 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
   route chip/badge/sources out, zero exceptions. Still worth a human clicking through it once
   in an actual browser before the video shoot, since `AppTest` doesn't render CSS/layout.
 
+### Phase 5b — Multi-session chat persistence — **Evan** *(follow-up to Phase 5; D31)*
+
+- [x] `src/database.py` (§5.5): `chat_sessions` + `chat_transcripts` on SQLAlchemy/SQLite,
+      WAL + `foreign_keys=ON` pragmas per connection, engine cached per URL so Streamlit's
+      reruns don't rebuild it, DB path overridable via `CHAT_DB_URL` for tests/CI
+- [x] `app.py` sidebar **Conversations** block: active-chat line (title · turns · tokens ·
+      accumulated $), "🧹 New chat" (replaces the old clear-chat button), a picker of the 25
+      most recently active conversations with explicit "📂 Open" and 🗑️ delete buttons.
+      Turns are saved *after* the answer renders, and a write failure surfaces as a sidebar
+      warning instead of costing the user the answer
+- [x] Conversation titles auto-derived from the first question (truncated to 60 chars), so
+      the picker reads as topics rather than uuids; sidebar timestamps converted from stored
+      UTC to the viewer's local time
+- [x] `tests/test_database.py` — 14 offline tests (no key needed): round-trip incl. the JSON
+      metadata columns, orphan-transcript FK rejection, title back-fill/truncation,
+      `updated_at` bump, recent-activity ordering, two-session isolation, stats aggregation,
+      rename, delete-cascade, WAL/FK pragmas
+- **Done when:** ask a question → reload the browser → the conversation is still in the
+  sidebar and reopens with its badges, sources, restrictions, and trace intact; a second
+  chat started with "New chat" stays separate. **Verified** via `streamlit.testing.v1.AppTest`
+  (the Phase 5 convention) with `answer_question` patched and a temp `CHAT_DB_URL`: 42 checks
+  across five flows — first render, two-turn save, New-chat isolation, reopen-from-a-fresh-
+  browser-session (4 messages replayed, route chip `TEAM (0.88)`, PT badge, history notice)
+  and delete — all passed with zero exceptions. Full suite: 56 passed.
+
 ### Phase 6 — Evaluation & demo assets — **whole team; James leads report**
 
 - [ ] Freeze the §9 battery results as a table (question → route → agents → verdict) —
@@ -1111,6 +1195,7 @@ Add rows as edge cases emerge (log the addition in §10).
 | D28 | 2026-08-07 | A small LM now decides **which specialists run and in what order** (`src/planner.py`), replacing `route_scores` + hardcoded graph edges | Ben's call, made knowingly against a flagged tradeoff. **This gives up a safety guarantee.** Fixed ordering (D4) guaranteed *by construction* that a restrictive specialist's constraints reached everyone downstream as binding `peer_context`; with LM-chosen order a plan of `["trainer","surgeon"]` writes the training plan before the surgeon's restrictions exist. Contained by three things, none of which fully restores it: RED_FLAG still runs on regex before planning (D5); ordering inversions are logged to the trace; and `compliance_check` re-verifies the final answer against every extracted constraint regardless of order (D30). **The claim "the model doesn't decide the things that matter" is now false and has been removed from Capabilities_Overview §7 — do not repeat it in the report.** The graph gains exactly one cycle (`consult_next` -> `consult_next`), bounded by plan length, which the planner caps and de-duplicates at the size of the roster |
 | D29 | 2026-08-07 | Specialists can call tools: deterministic calculators, own-corpus re-query, and PubMed — with PubMed gated in CODE to the case where the agent's own retrieval returned nothing | Calculators are the safe majority of the value: the numbers this system hands patients are arithmetic, and arithmetic is where LLMs quietly slip. They compute over patient-supplied values rather than introducing outside claims, so §7.1 is untouched. `search_my_corpus` preserves siloing (D3) because the collection name is injected by the agent, never read from model-supplied arguments — asserted by test. PubMed is the one that changes the product's character: it is primary research, not the vetted patient-education material in `data/`, and a single small-n abstract can read like consensus guidance inside a synthesized answer. Hence: schema not even offered unless the corpus missed, cited as `[research: PMID ...]` never `[source: filename]`, metadata only (sidesteps the full-text licensing problem `data/` already had), and unable to override a restriction. Tool loop capped at MAX_TOOL_ROUNDS=2 — unbounded tool loops are the standard way an agent burns a metered budget |
 | D30 | 2026-08-07 | `compliance_check` verifies the synthesized answer against every extracted constraint before it reaches the patient, and appends a visible warning on violation | The after-the-fact replacement for what D28 removed. Deliberately conservative: it flags only when the answer *affirmatively recommends* something a restriction forbids — telling a patient to avoid a restricted movement is the system working, not a violation. It also distinguishes "checked and clean" from "could not check" (`checked: False`), so a broken checker never reports a clean bill of health it did not establish — the same failure mode as the fabricated eval pass rate corrected in D23's audit |
+| D31 | 2026-07-31 *(renumbered twice: D13 -> D23 -> D31. Work developed in parallel on `main` claimed D13–D22 in the 2026-08-02 audit pass and D23–D30 on 2026-08-07, both times while this branch was open. Renumbering this row rather than `main`'s was the cheaper direction each time — `main`'s numbers are cross-referenced from requirements.txt, §7.4, and other decision rows.)* | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 
 ---
 
