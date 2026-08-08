@@ -210,8 +210,8 @@ consult(question, peer_context=None) ->
 The `consult()` lifecycle: retrieve top-k chunks from the agent's own collection → build a
 context block where every passage is labeled `[source: filename]` → fill the prompt template
 (persona + grounding rule + optional peer block + context + question) → one Groq LLM call
-(`llama-3.3-70b-versatile`, temperature 0.2) → return the draft plus the de-duplicated list
-of source files.
+(`openai/gpt-oss-120b`, temperature 0.2 — migrated from `llama-3.3-70b-versatile` on
+2026-08-07, D27) → return the draft plus the de-duplicated list of source files.
 
 Three design properties matter more than the plumbing:
 
@@ -671,20 +671,52 @@ regex-era numbers for historical comparison.
   `meta-llama/llama-prompt-guard-2-86m`, a purpose-built injection classifier, as a
   stronger drop-in upgrade — noted, not yet implemented.
 
-### 12.6 Business unit economics (`src/business/unit_economics.py`)
-- **Cost estimate:** input ($0.59/1M) and output ($0.79/1M) Groq pricing applied to a token
-  count **estimated** as `len(text)/4` — a heuristic, *not* real usage metadata from the
-  API response. Labeled as an approximation in the UI.
-- **Session tracking:** the sidebar computes real per-exchange cost from the actual chat
-  history and shows an accumulated session total with a budget warning.
-- **Fixed in the audit:** the sidebar previously displayed a **hardcoded `$0.0012`** and
-  never touched a real query. The budget guard still does not *block* requests when
-  exceeded — it warns. Stated plainly rather than described as enforcement.
+### 12.6 Business unit economics & monetization (`src/business/`, `src/auth.py`)
+
+**Superseded 2026-08-08 (D32/D34).** The estimator described here through 2026-08-07 —
+input ($0.59/1M) and output ($0.79/1M) applied to a `len(text)/4` token count — was wrong
+twice over and no longer produces any number the app displays. It counted only the visible
+question and answer (roughly one of the 6–14 model calls a question makes) and priced them
+at `llama-3.3-70b-versatile`'s rates, which D27 migrated off on 2026-08-07. Measured, a
+single-specialist question is **11,564 tokens, not the ~2,000 the estimator reported** —
+understated ~5.7×, then over-priced ~3.9× on input.
+
+What produces cost now:
+
+| Module | Responsibility |
+|---|---|
+| `src/telemetry.py` | Captures Groq's own per-call token counts, latency, and throttling into `llm_calls`; each row carries `cost_usd`, `user_id`, `session_id` |
+| `src/business/pricing.py` | The only place a Groq price lives: `gpt-oss-120b` $0.15/$0.60 per 1M, `gpt-oss-20b` $0.075/$0.30. Verified against Groq's docs 2026-08-08 |
+| `src/business/plans.py` | Free / Recovery ($19) / Clinic ($99) tiers, quota, overage, invoices, and the revenue/margin/capacity reports |
+| `src/auth.py` | Accounts (scrypt, stdlib — no new dependency), `user`/`admin` roles |
+| `pages/1_Business_Dashboard.py` | Admin-only console: MRR, ARR, ARPU, conversion, margin, per-route cost, capacity |
+
+**Revenue model — subscription plus metered overage.** Billing is per *question*, not per
+token, for a reason that only became visible once real measurement existed: a TEAM question
+costs ~3.3× a single-specialist one (38,141 vs 11,564 tokens), and the **planner** picks the
+route, not the patient (D28). Billing per token would charge someone more because our
+orchestrator decided their question needed the surgeon. RED_FLAG answers are non-billable —
+they short-circuit on regex before any specialist runs (D5), so they cost nothing, and
+charging for being told to seek emergency care is indefensible.
+
+**The finding that matters commercially: cost is not the constraint, throughput is.**
+Measured cost to serve is $0.0024 (single specialist) to ~$0.009 (TEAM) against a $0.12
+overage price — roughly **98% gross margin**. But Groq's free tier caps `gpt-oss-120b` at
+8,000 tokens/minute, and one TEAM question consumes 38,141 of them, i.e. **4.8 minutes of
+the entire account's budget for one answer**. That caps the whole tier at ~12.6 TEAM
+questions/hour, **~36 Recovery subscribers, and a $684/mo revenue ceiling** regardless of
+demand. Lifting it is a Groq tier change, not an architecture change.
+
+**Nothing is charged** — this is coursework. Accounts, quota, overage, and cost-to-serve are
+all real and computed from live rows; the only missing piece is a payment processor, and
+`plans.record_payment()` writes the invoice a Stripe webhook would, marked
+`status='simulated'`. `BudgetOverrunGuard` still *warns* rather than blocking; quota
+enforcement in `plans.check_quota()` is the part that actually stops a request.
 
 ### 12.7 High-Risk Patient Safety & LLM-as-a-Judge Evaluator
 - **Location:** `tests/test_high_risk_scenarios.py` & `src/eval/eval_suite.py`
 - **Stress-Test Benchmark:** Tests uninsured / self-treating patient scenarios (premature 225lb heavy gym squatting, skipping PT visits, forcing shoulder ROM, extreme 500 cal/day starvation diets, infection red-flags).
-- **LLM-as-a-Judge Evaluation:** Uses Groq `Llama-3.3-70B` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
+- **LLM-as-a-Judge Evaluation:** Uses Groq `openai/gpt-oss-120b` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
 - **Fixed in the audit — read before citing any pass rate:** the judge previously returned
   a **hardcoded perfect score with `PASS: True` on any exception** (missing key, rate
   limit, bad JSON), and the backup string assertions matched substrings so common

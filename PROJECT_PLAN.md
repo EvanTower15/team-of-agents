@@ -5,6 +5,60 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
+> **Status: MONETIZATION — ACCOUNTS, METERED BILLING, BUSINESS CONSOLE (2026-08-08)** —
+> the app now runs behind a login, meters what every question really costs, bills it
+> against a plan, and reports the economics to an admin-only dashboard. Offline suite
+> 124/124. **The headline finding is commercial, not technical: cost is not what limits
+> this product — throughput is.** See the results block below before writing the
+> business section of the report.
+>
+> **Monetization results (2026-08-08)** — Evan. Built on top of Ben's telemetry from the
+> same morning; the two were developed in parallel and merged cleanly.
+>
+> 1. **Every cost figure the app showed was wrong, in two compounding ways (D32).**
+>    `unit_economics` priced a `len(text)/4` token count at **$0.59/$0.79 per 1M** — those
+>    are `llama-3.3-70b-versatile`'s rates, left behind when D27 migrated to gpt-oss on
+>    2026-08-07. So the token count was understated ~5.7× (it saw only the visible question
+>    and answer, ~1 of the 6–14 calls a question makes) while the price was overstated ~3.9×
+>    on input. `src/business/pricing.py` is now the single source of truth —
+>    **gpt-oss-120b $0.15/$0.60, gpt-oss-20b $0.075/$0.30**, verified against Groq's docs
+>    rather than remembered. Telemetry rows carry `cost_usd` priced **at insert**, so a Groq
+>    price change cannot retroactively rewrite last month's reported margin.
+> 2. **Accounts, plans, and quota (D34).** scrypt via stdlib `hashlib` — no new dependency,
+>    because this project already had to reject `llm-guard` for downgrading `transformers`.
+>    Hybrid revenue model: Free (15 questions, hard stop) / Recovery ($19, 250 then $0.12) /
+>    Clinic ($99, 2,000 then $0.08). **Billing is per question, not per token**, because a
+>    TEAM question costs ~3.3× a single-specialist one and the *planner* picks the route,
+>    not the patient (D28) — billing per token would charge someone more because our
+>    orchestrator decided their question needed the surgeon. RED_FLAG is non-billable.
+> 3. **The commercial finding, and it is a throughput story.** Measured cost to serve is
+>    $0.0024 (single specialist) to ~$0.009 (TEAM) against $0.12 overage — **~98% gross
+>    margin**. Cost is not the constraint. Groq's 8,000 tok/min ceiling is: one TEAM question
+>    consumes **4.8 minutes of the entire account's budget**, capping the free tier at
+>    ~12.6 TEAM questions/hour, **~36 Recovery subscribers, and $684/mo** regardless of
+>    demand. Lifting it is a Groq tier change, not an architecture change.
+>
+> **Bugs found and fixed during this work:** (a) telemetry's `CREATE INDEX` on the new
+> `user_id` column sat inside `_SCHEMA`, but `CREATE TABLE IF NOT EXISTS` is a no-op on an
+> existing table — so the index ran before the `ALTER TABLE`, raised `no such column`, and
+> `record_call`'s blanket `except` swallowed it, leaving the table permanently un-migrated
+> and every insert failing in silence; (b) `auth`'s functions used the eager default
+> `db_url: str = DEFAULT_DB_URL`, which Python binds once at `def` time, so
+> `plans.revenue_report()` could never be pointed at a test database and silently read the
+> real file; (c) `capacity_report()` derived the revenue ceiling from an unfloored
+> subscriber count, so the dashboard would have shown "36 subscribers" beside "$698/mo" —
+> $19.39 each on a $19 plan. All three were caught by the new tests, not in review.
+>
+> **Stale-reference sweep:** `llama-3.3-70b-versatile` was still named as current in §0, §3,
+> §5.1, `src/vision.py`, `Capabilities_Overview` §12.6/§7, and both presentation documents,
+> nine days after the migration. Historical result blocks were left untouched per §0 — only
+> normative text was corrected.
+>
+> Verification: **124 offline tests** (87 existing + 37 new), plus `streamlit.testing`
+> AppTest runs confirming the login gate renders instead of the app, and the business
+> console refuses both signed-out and non-admin users while rendering 19 metrics for an
+> admin.
+>
 > **Status: LM ORCHESTRATOR + SPECIALIST TOOL CALLING (2026-08-07)** — a small LM now
 > plans which specialists run and in what order, specialists can call tools, and the whole
 > system runs on post-deprecation models. Full suite 82/82. **This changed the safety
@@ -550,20 +604,22 @@ Verified: full suite 82/82 on the new models, including the high-risk safety sce
 
 **For every teammate and every AI agent working in this repo:**
 
-1. **Before starting work:** read the Status block above — including the
-   **⚠️ ACTION REQUIRED BEFORE 2026-08-16** callout, since the model this whole project
-   runs on is being retired on that date — then find your phase in [§8](#8-phase-plan)
-   and confirm its dependencies are marked complete.
+1. **Before starting work:** read the Status block above, then find your phase in
+   [§8](#8-phase-plan) and confirm its dependencies are marked complete.
    > ⚠️ **Prerequisite for Ben & James (or any agent working on their behalf):** you need
    > your own free Groq API key before any agent code will actually run — the router, all
-   > four specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`
-   > (**being retired 2026-08-16 — see the callout above**). Sign up
+   > four specialist agents, and synthesis all call Groq (`openai/gpt-oss-120b` for
+   > specialists and synthesis, `openai/gpt-oss-20b` for routing and planning, since
+   > D27). Sign up
    > at https://console.groq.com, create a key, copy `.env.example` → `.env`, and paste it in
    > as `GROQ_API_KEY=`. `.env` is gitignored — never commit it. **As of Phase 4c this is a
    > harder blocker than before:** the router itself is now LLM-primary, so without a key
    > `classify()` returns CLARIFY for every question (verified) — there's no regex fallback
    > left except RED_FLAG. Delete this notice once both of you have confirmed your keys work
    > (e.g. a phase-results block says so).
+   >
+   > **The August 16 model retirement is resolved** — migrated 2026-08-07 (D27); see the
+   > ✅ RESOLVED section above §0. Nothing to do; do not re-open it.
    >
    > **Optional second key:** `GOOGLE_API_KEY` (free, https://aistudio.google.com/apikey)
    > enables the photo-upload feature only — Groq has no vision-capable model on this
@@ -641,7 +697,7 @@ corpus files committed to `data/` instead of live ingestion scripts hitting APIs
 
 | Layer | Choice | Why |
 |---|---|---|
-| LLM | **Groq** `llama-3.3-70b-versatile`, `temperature=0.2` | Free tier, fast; named in the rough sketch; same model opim-5517 uses for routing/synthesis |
+| LLM | **Groq** `openai/gpt-oss-120b` (`temperature=0.2`) for specialists/synthesis; `openai/gpt-oss-20b` (`temperature=0`, `reasoning_effort="low"`) for routing/planning/compliance | Free tier, fast. Migrated from `llama-3.3-70b-versatile` on 2026-08-07 ahead of its 2026-08-16 retirement (D27); gpt-oss also supports tool calling, which the D29 tool loop requires. Metered per call by `src/telemetry.py`, priced by `src/business/pricing.py` |
 | Embeddings | **`sentence-transformers/all-MiniLM-L6-v2`** via `langchain-huggingface` | Free, runs locally, zero API keys/rate limits. opim-5517's Gemini embeddings needed 60-second sleeps between batches — we skip that whole class of problem. Corpus is small; quality is fine. (Decision D2) |
 | Vector DB | **ChromaDB**, embedded, persisted to `./chroma_db/`, one **collection per agent** (`pt_docs`, `trainer_docs`) | Same as opim-5517; per-agent collections keep each specialist's knowledge cleanly siloed — that siloing IS the product thesis |
 | Orchestration | **LangGraph** `StateGraph` | Same as opim-5517; gives us the agent-to-agent handoff for free via shared state |
@@ -723,9 +779,18 @@ def retrieve(question: str, collection_name: str, k: int = 4) -> list:
 
 def clear_collection(collection_name: str) -> None: ...
 def get_llm():
-    """Cached ChatGroq(model='llama-3.3-70b-versatile', temperature=0.2).
+    """Cached ChatGroq(model='openai/gpt-oss-120b', temperature=0.2).
     Raises EnvironmentError naming .env.example if GROQ_API_KEY is missing."""
+
+def get_small_llm():
+    """Cached ChatGroq(model='openai/gpt-oss-20b', temperature=0,
+    reasoning_effort='low') for routing/planning/compliance (D27)."""
 ```
+
+Both factories attach `telemetry.UsageCallback`, so every model call in the system is
+metered without any caller knowing telemetry exists. Do not construct `ChatGroq`
+anywhere else — a client built outside these two functions is invisible to cost
+tracking and to the business dashboard.
 
 ### 5.2 `src/agents/base.py` (Phase 1)
 
@@ -1195,6 +1260,9 @@ Add rows as edge cases emerge (log the addition in §10).
 | D28 | 2026-08-07 | A small LM now decides **which specialists run and in what order** (`src/planner.py`), replacing `route_scores` + hardcoded graph edges | Ben's call, made knowingly against a flagged tradeoff. **This gives up a safety guarantee.** Fixed ordering (D4) guaranteed *by construction* that a restrictive specialist's constraints reached everyone downstream as binding `peer_context`; with LM-chosen order a plan of `["trainer","surgeon"]` writes the training plan before the surgeon's restrictions exist. Contained by three things, none of which fully restores it: RED_FLAG still runs on regex before planning (D5); ordering inversions are logged to the trace; and `compliance_check` re-verifies the final answer against every extracted constraint regardless of order (D30). **The claim "the model doesn't decide the things that matter" is now false and has been removed from Capabilities_Overview §7 — do not repeat it in the report.** The graph gains exactly one cycle (`consult_next` -> `consult_next`), bounded by plan length, which the planner caps and de-duplicates at the size of the roster |
 | D29 | 2026-08-07 | Specialists can call tools: deterministic calculators, own-corpus re-query, and PubMed — with PubMed gated in CODE to the case where the agent's own retrieval returned nothing | Calculators are the safe majority of the value: the numbers this system hands patients are arithmetic, and arithmetic is where LLMs quietly slip. They compute over patient-supplied values rather than introducing outside claims, so §7.1 is untouched. `search_my_corpus` preserves siloing (D3) because the collection name is injected by the agent, never read from model-supplied arguments — asserted by test. PubMed is the one that changes the product's character: it is primary research, not the vetted patient-education material in `data/`, and a single small-n abstract can read like consensus guidance inside a synthesized answer. Hence: schema not even offered unless the corpus missed, cited as `[research: PMID ...]` never `[source: filename]`, metadata only (sidesteps the full-text licensing problem `data/` already had), and unable to override a restriction. Tool loop capped at MAX_TOOL_ROUNDS=2 — unbounded tool loops are the standard way an agent burns a metered budget |
 | D30 | 2026-08-07 | `compliance_check` verifies the synthesized answer against every extracted constraint before it reaches the patient, and appends a visible warning on violation | The after-the-fact replacement for what D28 removed. Deliberately conservative: it flags only when the answer *affirmatively recommends* something a restriction forbids — telling a patient to avoid a restricted movement is the system working, not a violation. It also distinguishes "checked and clean" from "could not check" (`checked: False`), so a broken checker never reports a clean bill of health it did not establish — the same failure mode as the fabricated eval pass rate corrected in D23's audit |
+| D32 | 2026-08-08 | One pricing table (`src/business/pricing.py`) owns what a token costs, and metered rows replace the `len(text)/4` estimator as the source of every displayed cost | The estimator was wrong twice over and the two errors pointed opposite ways, which is why neither was noticed: it counted only the visible question and answer — about one of the 6–14 model calls a question makes, understating tokens ~5.7× against Ben's measured 11,564 for a single-specialist question — and priced them at **$0.59/$0.79 per 1M**, `llama-3.3-70b-versatile`'s rates, which D27 had migrated off nine days earlier, overstating input ~3.9×. Verified rates now live in exactly one file (gpt-oss-120b $0.15/$0.60, gpt-oss-20b $0.075/$0.30, checked against Groq's docs rather than remembered), and `unit_economics` derives from it instead of holding a second drifting copy. Cost is computed **at insert**, not at read: repricing history after a Groq change would silently rewrite a past period's reported margin. A call with no usage metadata records **NULL, not 0.0** — an unmeasured call must stay distinguishable from a free one, the same distinction `compliance_check` draws between "could not check" and "clean" (D30), and the same failure mode as the eval harness that scored 5/5 on exception (D13). Unknown models price at the *dearest* known rate so a missed model swap can never flatter the margin |
+| D33 | 2026-08-08 | Telemetry attribution moved from a module global to `ContextVar`s | Ben's `_current_node` global (07afb4a) was a deliberate, documented tradeoff and it is fine for what it was built for: two concurrent users racing over a *stage label* mislabels a chart. It is not fine for `user_id`. Streamlit serves every browser session on its own thread, so a raced global there would invoice user A for user B's tokens. ContextVars are per-thread, so concurrent requests attribute independently — asserted by a test that forces genuine interleaving with a `threading.Barrier`. Deliberate consequence: a callback fired from a worker thread that never had them set records NULL rather than inheriting another request's identity, and such rows are reported as `(unattributed)` rather than dropped so per-user totals always reconcile with the metered total. Unattributed is recoverable; misattributed billing is not |
+| D34 | 2026-08-08 | Accounts + subscription-with-overage billing + an admin-only business console, with **no payment processor** | The course product needs the *mechanisms* of a paid product, not payments. Everything is real and computed from live rows — scrypt-hashed accounts (stdlib `hashlib`, no new dependency, because this project already had to reject `llm-guard` for downgrading `transformers` and breaking MiniLM retrieval for all four agents), quota, overage, per-user cost-to-serve — and `record_payment()` writes the invoice a Stripe webhook would, marked `status='simulated'` so a demo row can never be mistaken for a real one. Three choices worth defending: **(a) billing is per question, not per token** — a TEAM question costs ~3.3× a single-specialist one (38,141 vs 11,564 tokens) and the *planner* chooses the route, not the patient (D28), so per-token billing would charge someone more because our orchestrator decided their question needed the surgeon; we absorb the variance and `margin_report()` is the evidence that is safe. **(b) Free blocks at quota, paid passes into overage** — charging someone who never entered a card and cutting off a paying patient mid-recovery are both wrong, in opposite directions. **(c) RED_FLAG is non-billable** — it short-circuits on regex before any specialist runs (D5), so it costs nothing to serve, and billing for being told to seek emergency care is indefensible. The console is a role-gated `pages/` file that re-reads the role from the database on every run rather than trusting `session_state`, because hiding a sidebar link is not access control. **The finding the report should lead with is commercial: at ~98% gross margin, cost is not the constraint — Groq's 8,000 tok/min ceiling is.** One TEAM question consumes 4.8 minutes of the entire account's budget, capping the free tier at ~36 Recovery subscribers and $684/mo regardless of demand. That is a Groq tier change, not an architecture change |
 | D31 | 2026-07-31 *(renumbered twice: D13 -> D23 -> D31. Work developed in parallel on `main` claimed D13–D22 in the 2026-08-02 audit pass and D23–D30 on 2026-08-07, both times while this branch was open. Renumbering this row rather than `main`'s was the cheaper direction each time — `main`'s numbers are cross-referenced from requirements.txt, §7.4, and other decision rows.)* | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 
 ---

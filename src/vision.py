@@ -2,7 +2,7 @@
 src/vision.py — user-uploaded image understanding via Google Gemini (the only
 vision provider available to this project; see the provider note below).
 
-The rest of this project runs on Groq's `llama-3.3-70b-versatile`, which is
+The rest of this project runs on Groq's `openai/gpt-oss-120b` (D27), which is
 TEXT-ONLY -- it cannot see images. So when a user uploads a photo (a swollen
 knee, a surgical incision, exercise form), this module makes one separate call
 to a natively-multimodal model to turn that image into a factual text

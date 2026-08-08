@@ -113,11 +113,28 @@ st.caption(
     "every call in the pipeline, priced per model."
 )
 
+def _margin_label(pct: float, cost: float) -> str:
+    """Never print a flat 100% while we are actually paying something.
+
+    At these volumes margin rounds to 100.0% long before it is 100%, and a
+    dashboard claiming a perfect margin reads as a bug or an overclaim. Same
+    convention as compliance_check distinguishing "clean" from "could not
+    check" -- say the true thing, not the flattering rounding.
+    """
+    if cost > 0 and pct > 99.9:
+        return ">99.9%"
+    return f"{pct:.1f}%"
+
+
 m1, m2, m3, m4 = st.columns(4)
 m1.metric("Revenue", f"${margin['revenue_usd']:,.2f}")
 m2.metric("Cost to serve", f"${margin['cost_to_serve_usd']:,.4f}")
 m3.metric("Gross margin", f"${margin['gross_margin_usd']:,.2f}")
-m4.metric("Margin %", f"{margin['gross_margin_pct']:.1f}%")
+m4.metric(
+    "Margin %",
+    _margin_label(margin["gross_margin_pct"], margin["cost_to_serve_usd"]),
+    help="Revenue minus measured cost to serve, over revenue.",
+)
 
 if margin["unpriced_calls"]:
     st.warning(

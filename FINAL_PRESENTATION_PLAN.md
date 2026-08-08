@@ -81,9 +81,13 @@ Migrated 2026-08-07 (D27):
 
 Two things follow that the deck must reflect:
 
-- **The token pricing on the old slide 13 ($0.59/$0.79 per 1M) was Llama-3.3-70B pricing and no
-  longer applies.** Do not reuse it. Look up current gpt-oss pricing at console.groq.com and put
-  the real number in, or leave it blank — **do not carry the old number forward.**
+- **The token pricing on the old slide 13 ($0.59/$0.79 per 1M) was Llama-3.3-70B pricing.**
+  ✱ **RESOLVED 2026-08-08 — verified against console.groq.com, use these:**
+  `gpt-oss-120b` **$0.15/1M input, $0.60/1M output**; `gpt-oss-20b` **$0.075 / $0.30**.
+  They now live in exactly one place in the code (`src/business/pricing.py`) and every cost
+  figure in the app reads from it. The old numbers were still live in `unit_economics.py`
+  until 2026-08-08 — every dollar the app displayed for nine days after the migration was a
+  chars/4 token count priced at a retired model's rates (D32).
 - **gpt-oss models emit reasoning tokens before content.** They cost more per call than the model
   they replaced. Anything setting `max_tokens` must leave headroom or `content` comes back empty.
 
@@ -181,6 +185,48 @@ error rate — is the kind of thing a graduate audience will recognise.
 3. **Pick a flagship question that wakes 2–3 specialists.** This one already only woke three
    (surgeon → PT → nutritionist); the trainer was not selected.
 4. Keep the Observability tab open on a second monitor. If it stalls, *show* the ceiling.
+
+## 0.3c ✱✱ The business conclusion that follows: we are throughput-limited, not cost-limited
+
+§0.3b is an engineering finding. This is the commercial one it forces, and it is the strongest
+business material in the deck because it is **measured, not modelled**.
+
+Cost to serve, at the verified gpt-oss rates (§0.2):
+
+| Route | Real tokens | Cost to serve | Price (overage) | Gross margin |
+|---|---|---|---|---|
+| Single specialist | 11,564 | **$0.0024** | $0.12 | **~98%** |
+| TEAM (3 specialists) | 38,141 | **~$0.009** | $0.12 | **~93%** |
+
+**So token cost is not the constraint — and that is the point.** The 8,000 tok/min ceiling is.
+One TEAM question consumes **4.8 minutes of the entire account's budget**, which caps the whole
+free tier at:
+
+| | |
+|---|---|
+| TEAM questions / hour (all users combined) | **12.6** |
+| Recovery subscribers supportable | **~36** |
+| Revenue ceiling | **$684 / month** |
+
+**The line to say on stage:** *"Our gross margin is 98%, and it doesn't matter — we top out at
+36 customers. The constraint isn't the price of a token, it's how many tokens a minute Groq will
+sell us. That's a purchase order, not a rewrite."*
+
+That reframes what would otherwise be an embarrassing demo problem (the 3m25s stall) into the
+scaling analysis a business audience actually wants, and it is the same number in both places.
+
+**Monetization shipped 2026-08-08 (D32/D34)** and the demo can show it live: accounts (scrypt),
+Free / Recovery $19 / Clinic $99 with metered overage, quota enforcement, and an **admin-only
+business console** (`pages/1_Business_Dashboard.py`) rendering MRR, ARR, ARPU, conversion,
+per-route margin, and the capacity ceiling above — all from real rows. **Nothing is charged**;
+invoices are written `status='simulated'`. Two demo logins: `demo@recoveryteam.app` (patient) and
+`admin@recoveryteam.app` (console), password `recovery2026`.
+
+One honest caveat to keep in the speaker notes: billing is **per question, not per token**,
+because a TEAM question costs 3.3× a single-specialist one and *the planner* chooses the route,
+not the patient (D28). Charging a patient more because our orchestrator decided they needed the
+surgeon is not defensible, so we absorb the variance — and the margin table above is the evidence
+that absorbing it is safe.
 
 ## 0.4 ✱ One old limitation is now fixed — do not read it off the old slide
 
@@ -1209,7 +1255,10 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
-| Token pricing | **⚠️ UNVERIFIED for gpt-oss — the old $0.59/$0.79 was Llama-3.3-70B. Look it up.** ✱ |
+| Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com: `gpt-oss-120b` **$0.15/1M in · $0.60/1M out**; `gpt-oss-20b` **$0.075/1M in · $0.30/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code (`src/business/pricing.py` is now the only place a price lives) |
+| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM — against $0.12/question overage, i.e. **~98% gross margin**. Cost is NOT the constraint |
+| **The real constraint** ✱ | **8,000 tok/min** on `gpt-oss-120b`. One TEAM question = 38,141 tokens = **4.8 minutes of the entire account's budget** → ~12.6 TEAM questions/hour, **~36 Recovery subscribers, $684/mo ceiling** regardless of demand. A Groq tier change, not an architecture change |
+| Monetization ✱ | Accounts (scrypt, stdlib), Free/Recovery $19/Clinic $99 with overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
 | Plan bounds ✱ | `MAX_PLAN_LENGTH = 4`, de-duplicated, sanitized against hallucinated agent names |
