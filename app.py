@@ -22,6 +22,7 @@ Run (one ingest per specialist — there is no --agent all):
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -50,6 +51,86 @@ def _get_visual_search():
     from src.multimodal.clip_search import MultimodalVisualSearch
 
     return MultimodalVisualSearch()
+
+
+def _render_observability() -> None:
+    """Real per-call token accounting, read from src/telemetry.py.
+
+    Deliberately distinct from the sidebar's unit-economics panel: that one
+    estimates cost from string length, this one reports what Groq actually
+    charged us. Where they disagree, this is the truthful one.
+    """
+    from src import telemetry
+
+    st.caption(
+        "Actual token counts from Groq response metadata — not the chars/4 "
+        "estimate used in the sidebar. Covers every call in the pipeline: "
+        "router, planner, each specialist, tool rounds, constraint extraction, "
+        "the peer back-channel, synthesis, and the compliance check."
+    )
+
+    s = telemetry.summary()
+    if not s["calls"]:
+        st.info(
+            "No model calls recorded yet. Ask a question in the Chat tab and "
+            "this fills in."
+        )
+        return
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Model calls", f"{s['calls']:,}")
+    c2.metric("Tokens (real)", f"{s['tokens']:,}")
+    c3.metric("Avg latency", f"{s['avg_latency_ms']:,} ms")
+    c4.metric("Rate-limit hits", f"{s['rate_limits']:,}")
+
+    # The ceiling that actually stalls a live demo. The 200k/day cap is the one
+    # everyone notices; 8k/minute on gpt-oss-120b is the one that makes the
+    # spinner sit there while the client backs off silently.
+    st.markdown(
+        f"**Tokens per minute vs the free-tier ceiling "
+        f"({telemetry.TPM_LIMIT_120B:,}/min on `gpt-oss-120b`)**"
+    )
+    tpm = telemetry.tokens_per_minute()
+    if tpm:
+        import pandas as pd
+
+        df = pd.DataFrame(tpm).set_index("minute")
+        df["ceiling"] = telemetry.TPM_LIMIT_120B
+        st.line_chart(df[["tokens", "ceiling"]], height=220)
+        if any(r["rate_limits"] for r in tpm):
+            st.warning(
+                "429s recorded. When the per-minute budget is exhausted the "
+                "client backs off silently — from the UI that is "
+                "indistinguishable from a hang."
+            )
+
+    st.markdown("**Where the tokens actually go, by pipeline stage**")
+    rows = telemetry.by_node()
+    if rows:
+        import pandas as pd
+
+        st.dataframe(
+            pd.DataFrame(rows).rename(columns={
+                "node": "Stage", "calls": "Calls", "tokens": "Tokens",
+                "avg_latency_ms": "Avg ms", "rate_limits": "429s",
+            }),
+            use_container_width=True, hide_index=True,
+        )
+
+    with st.expander("Recent calls"):
+        import pandas as pd
+
+        st.dataframe(
+            pd.DataFrame(telemetry.recent_calls()),
+            use_container_width=True, hide_index=True,
+        )
+
+    _ls = os.getenv("LANGCHAIN_PROJECT", "recovery-team-eval")
+    st.caption(
+        f"Full request/response traces live in LangSmith (project `{_ls}`) — "
+        "https://smith.langchain.com . It cannot be embedded here: it is hosted "
+        "SaaS and blocks framing."
+    )
 
 
 SPECIALIST_META = {
@@ -325,76 +406,85 @@ st.caption(
     "Educational support only -- not a substitute for advice from a licensed clinician."
 )
 
-for msg in st.session_state.messages:
-    avatar = "🙂" if msg["role"] == "user" else "🩹"
-    with st.chat_message(msg["role"], avatar=avatar):
-        if msg["role"] == "user" and msg.get("image_description"):
-            with st.expander("🖼️ What the vision model saw in your photo"):
-                st.caption(msg["image_description"])
-        if msg["role"] == "assistant":
-            meta = msg.get("meta", {})
-            st.markdown(
-                f'<span class="route-chip">{meta.get("route", "?")} '
-                f'({meta.get("route_confidence", 0):.2f})</span>',
-                unsafe_allow_html=True,
-            )
-            st.markdown(_badges_html(meta.get("agents_consulted", [])), unsafe_allow_html=True)
-        st.markdown(msg["content"])
+# Chat and observability are tabs over the CONTENT area only. st.chat_input is
+# still called at page level further down, so Streamlit keeps it pinned to the
+# bottom of the window rather than burying it inside a tab.
+_tab_chat, _tab_obs = st.tabs(["💬 Chat", "📊 Observability"])
 
-        if msg["role"] == "assistant":
-            meta = msg.get("meta", {})
-            sources = meta.get("sources") or {}
-            if sources:
-                with st.expander("Sources"):
-                    for agent, files in sources.items():
-                        label = SPECIALIST_META.get(agent, {}).get("label", agent)
-                        st.markdown(f"**{label}:** " + ", ".join(files))
+with _tab_obs:
+    _render_observability()
 
-            constraints = meta.get("constraints") or {}
-            if constraints:
-                with st.expander("Binding restrictions"):
-                    for agent, items in constraints.items():
-                        label = SPECIALIST_META.get(agent, {}).get("label", agent)
-                        st.markdown(f"**From your {label}:**")
-                        for c in items:
-                            part = f" ({c['body_part']})" if c.get("body_part") else ""
-                            dur = f" -- {c['duration']}" if c.get("duration") else ""
-                            st.markdown(
-                                f'<div class="restriction-line">{c["restriction"]}{part}{dur}</div>',
-                                unsafe_allow_html=True,
-                            )
+with _tab_chat:
+  for msg in st.session_state.messages:
+      avatar = "🙂" if msg["role"] == "user" else "🩹"
+      with st.chat_message(msg["role"], avatar=avatar):
+          if msg["role"] == "user" and msg.get("image_description"):
+              with st.expander("🖼️ What the vision model saw in your photo"):
+                  st.caption(msg["image_description"])
+          if msg["role"] == "assistant":
+              meta = msg.get("meta", {})
+              st.markdown(
+                  f'<span class="route-chip">{meta.get("route", "?")} '
+                  f'({meta.get("route_confidence", 0):.2f})</span>',
+                  unsafe_allow_html=True,
+              )
+              st.markdown(_badges_html(meta.get("agents_consulted", [])), unsafe_allow_html=True)
+          st.markdown(msg["content"])
 
-            if show_debug and meta.get("execution_trace"):
-                with st.expander("Routing trace (debug)"):
-                    st.markdown(f"**Route:** {meta.get('route')} "
-                                f"(confidence {meta.get('route_confidence', 0):.2f})")
-                    for line in meta["execution_trace"]:
-                        st.code(line, language=None)
+          if msg["role"] == "assistant":
+              meta = msg.get("meta", {})
+              sources = meta.get("sources") or {}
+              if sources:
+                  with st.expander("Sources"):
+                      for agent, files in sources.items():
+                          label = SPECIALIST_META.get(agent, {}).get("label", agent)
+                          st.markdown(f"**{label}:** " + ", ".join(files))
 
-            tokens = meta.get("tokens") or {}
-            if tokens.get("total_tokens"):
-                st.caption(
-                    f"🪙 {tokens['total_tokens']:,} tokens "
-                    f"(in {tokens.get('input_tokens', 0):,} / out {tokens.get('output_tokens', 0):,}) "
-                    f"· ${meta.get('cost_usd', 0.0):.6f}"
-                )
+              constraints = meta.get("constraints") or {}
+              if constraints:
+                  with st.expander("Binding restrictions"):
+                      for agent, items in constraints.items():
+                          label = SPECIALIST_META.get(agent, {}).get("label", agent)
+                          st.markdown(f"**From your {label}:**")
+                          for c in items:
+                              part = f" ({c['body_part']})" if c.get("body_part") else ""
+                              dur = f" -- {c['duration']}" if c.get("duration") else ""
+                              st.markdown(
+                                  f'<div class="restriction-line">{c["restriction"]}{part}{dur}</div>',
+                                  unsafe_allow_html=True,
+                              )
 
-            # Reloaded turns skip the CLIP lookup: it is a live image-embedding
-            # search over the whole visuals corpus, not part of the saved answer,
-            # so replaying it would cost one search per historical message on
-            # every rerun (see _messages_from_transcripts).
-            if msg.get("from_history"):
-                st.caption("↩️ Reloaded from saved history — ask again to regenerate visual guides.")
-            else:
-                try:
-                    matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
-                    if matched_imgs:
-                        with st.expander("🖼️ Visual Guides & Diagrams"):
-                            for img in matched_imgs:
-                                st.caption(f"**{img['title']}**")
-                                st.image(img["file_path"], use_container_width=True)
-                except Exception as exc:
-                    st.caption(f"(visual search unavailable: {exc})")
+              if show_debug and meta.get("execution_trace"):
+                  with st.expander("Routing trace (debug)"):
+                      st.markdown(f"**Route:** {meta.get('route')} "
+                                  f"(confidence {meta.get('route_confidence', 0):.2f})")
+                      for line in meta["execution_trace"]:
+                          st.code(line, language=None)
+
+              tokens = meta.get("tokens") or {}
+              if tokens.get("total_tokens"):
+                  st.caption(
+                      f"🪙 {tokens['total_tokens']:,} tokens "
+                      f"(in {tokens.get('input_tokens', 0):,} / out {tokens.get('output_tokens', 0):,}) "
+                      f"· ${meta.get('cost_usd', 0.0):.6f}"
+                  )
+
+              # Reloaded turns skip the CLIP lookup: it is a live image-embedding
+              # search over the whole visuals corpus, not part of the saved answer,
+              # so replaying it would cost one search per historical message on
+              # every rerun (see _messages_from_transcripts).
+              if msg.get("from_history"):
+                  st.caption("↩️ Reloaded from saved history — ask again to regenerate visual guides.")
+              else:
+                  try:
+                      matched_imgs = _get_visual_search().search_visuals(msg.get("content", ""), top_k=2)
+                      if matched_imgs:
+                          with st.expander("🖼️ Visual Guides & Diagrams"):
+                              for img in matched_imgs:
+                                  st.caption(f"**{img['title']}**")
+                                  st.image(img["file_path"], use_container_width=True)
+                  except Exception as exc:
+                      st.caption(f"(visual search unavailable: {exc})")
 
 _submission = st.chat_input(
     "Ask about an injury, rehab, or getting back into training...",

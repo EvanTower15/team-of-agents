@@ -91,12 +91,16 @@ def _format_history(history: list[dict], max_turns: int = MAX_HISTORY_TURNS) -> 
     return "\n".join(lines)
 
 
+from src.telemetry import set_node  # noqa: E402
+
+
 def resolve_followup(question: str, history: list[dict] | None) -> dict:
     """Rewrite `question` into a standalone question using `history`.
 
     Returns {"resolved": str, "rewritten": bool, "error": str | None}.
     Never raises -- on any failure `resolved` is the original question.
     """
+    set_node("resolve_followup")
     result = {"resolved": question, "rewritten": False, "error": None}
 
     if not question or not question.strip():

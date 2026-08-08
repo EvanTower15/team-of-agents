@@ -92,6 +92,7 @@ from src.agents.peer_consult import (  # noqa: E402
     detect_peer_question,
     format_peer_exchange,
 )
+from src.telemetry import set_node  # noqa: E402
 from src.agents.compliance import COMPLIANCE_WARNING, check_compliance  # noqa: E402
 from src.conversation import resolve_followup  # noqa: E402
 from src.planner import plan_consultation, violates_restrictiveness  # noqa: E402
@@ -236,6 +237,7 @@ def _ok(result: dict | None) -> bool:
 
 
 def route_question(state: TeamState) -> dict:
+    set_node("route")
     decision = classify(state["question"])
     return {
         "route": decision.label,
@@ -267,6 +269,7 @@ _CONSTRAINT_FIELD = {
 
 
 def plan_consultation_node(state: TeamState) -> dict:
+    set_node("plan")
     """Ask the small LM which specialists to consult, and in what order (D28).
 
     Replaces the fixed surgeon->PT->trainer->nutrition edge chain. Falls back
@@ -306,6 +309,7 @@ def consult_next(state: TeamState) -> dict:
 
     key = plan[idx]
     field, agent_getter = _AGENT_BY_KEY[key]
+    set_node(f"consult:{key}")
 
     # Accumulate every upstream draft, constraints first so restrictions lead.
     blocks = []
@@ -326,6 +330,7 @@ def consult_next(state: TeamState) -> dict:
     # extracting from its draft spent a Groq call on a value that was then
     # discarded -- on every TEAM question that included the trainer.
     cfield, _ = _CONSTRAINT_FIELD[key]
+    set_node(f"extract_constraints:{key}")
     constraints = (
         extract_constraints(result["answer"]) if cfield and _ok(result) else []
     )
@@ -348,6 +353,7 @@ def consult_next(state: TeamState) -> dict:
 
 
 def peer_consult(state: TeamState) -> dict:
+    set_node("peer_consult")
     """Bounded agent-to-agent back-channel.
 
     Before synthesis, check whether one specialist needs something only
@@ -388,6 +394,7 @@ def peer_consult(state: TeamState) -> dict:
 
 
 def synthesize_team_answer(state: TeamState) -> dict:
+    set_node("synthesize")
     drafts, sources = [], {}
     surgeon = state.get("surgeon_result")
     pt, tr = state.get("pt_result"), state.get("trainer_result")
@@ -478,6 +485,7 @@ def synthesize_team_answer(state: TeamState) -> dict:
         )
         if state.get(field)
     }
+    set_node("compliance_check")
     verdict = check_compliance(answer, all_constraints)
     if verdict["checked"] and not verdict["compliant"]:
         answer += COMPLIANCE_WARNING.format(details=verdict["details"])
@@ -505,6 +513,7 @@ def safety_response(state: TeamState) -> dict:
 
 
 def ask_clarification(state: TeamState) -> dict:
+    set_node("clarify")
     try:
         chain = _CLARIFY_PROMPT | get_llm() | StrOutputParser()
         question = chain.invoke({"question": state["question"]}).strip()

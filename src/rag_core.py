@@ -94,11 +94,30 @@ def _require_key() -> str:
 
 
 @lru_cache(maxsize=1)
+def _usage_callback():
+    """One shared telemetry handler for every model call in the process.
+
+    Attached to the clients rather than to individual call sites, so the
+    router, planner, specialists, tool rounds, constraint extraction, the peer
+    back-channel, synthesis, and the compliance check are all covered without
+    any of them knowing telemetry exists.
+    """
+    from src.telemetry import UsageCallback
+
+    return UsageCallback()
+
+
+@lru_cache(maxsize=1)
 def get_llm():
     """Cached ChatGroq client shared by every agent and the synthesizer."""
     from langchain_groq import ChatGroq
 
-    return ChatGroq(model=GROQ_MODEL, temperature=0.2, groq_api_key=_require_key())
+    return ChatGroq(
+        model=GROQ_MODEL,
+        temperature=0.2,
+        groq_api_key=_require_key(),
+        callbacks=[_usage_callback()],
+    )
 
 
 @lru_cache(maxsize=1)
@@ -120,6 +139,7 @@ def get_small_llm():
         temperature=0,
         groq_api_key=_require_key(),
         reasoning_effort="low",
+        callbacks=[_usage_callback()],
     )
 
 
