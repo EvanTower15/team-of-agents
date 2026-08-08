@@ -18,11 +18,15 @@
 > - [Part 3](#part-3--qa-prep) — honest-limitations cheat sheet.
 > - [Part 4](#part-4--fact-sheet) — every number, verified against the repo.
 >
-> **⚠️ REVISED 2026-08-07 (evening).** The system changed substantially the same day this plan was
-> written: a model migration, an LM planner, specialist tool calling, conversation memory, and a
-> back-channel between agents all landed. **Roughly a third of this document's previous claims went
-> stale in one afternoon.** Everything below is re-verified against the repo as of the revision, and
-> changed items are marked ✱. Read Part 0 in full before building anything.
+> **⚠️ REVISED 2026-08-07/08.** The system changed substantially while this plan was being written:
+> a model migration, an LM planner, specialist tool calling, conversation memory, and a back-channel
+> between agents all landed — and then **Evan merged PR #10 (multi-session chat persistence, +1,561
+> lines) on top.** **Roughly a third of this document's previous claims went stale inside a day.**
+> Everything below is re-verified against `main` at the revision, and changed items are marked ✱.
+> Read Part 0 in full before building anything.
+>
+> **Note the decision log now runs to D31, not D30** — Evan renumbered persistence when he
+> reconciled his branch against the planner/tools merge.
 
 ---
 
@@ -149,7 +153,40 @@ Three things contain it, and none fully restores the guarantee:
 guarantee and being caught.** It is also a genuinely interesting design question for this audience:
 *when is a learned decision worth a lost invariant, and what do you build to compensate?*
 
-## 0.6 Assets and prep
+## 0.6 ✱ NEW — chat persistence shipped (Evan, PR #10), and it changes two beats
+
+`src/database.py` (SQLAlchemy/SQLite, 476 lines, 14 tests) persists `chat_sessions` +
+`chat_transcripts`: one row per turn, with route, specialists, sources, restrictions, tokens, and
+cost as **typed columns** rather than a blob. The Streamlit sidebar gained a real conversation
+manager — active-session line with turn count / tokens / accumulated spend, **🧹 New chat**,
+a picker over the last 25 conversations with **📂 Open** and **🗑️ Delete**.
+
+Two deliberate design choices worth 10 seconds each on stage:
+
+- **Reopening is an explicit button, not the selectbox's change event** — so browsing the list of
+  past conversations never clobbers the chat you have open.
+- **Failure to save is surfaced, not swallowed** — `persist_error` renders a visible warning
+  ("Last turn was not saved: …"). Same principle as the compliance check's `checked: False`:
+  never let a silent failure look like success.
+
+**This makes demo beat 5 real** (see Part 2). The old script said "reload the browser and reopen
+the conversation" as an aspiration; it now works, including accumulated spend surviving the reload.
+
+**And it sharpens the privacy limitation on slide 15** — we are no longer merely *holding* health
+information in memory, we are *writing it to disk* in plaintext SQLite. Say that plainly.
+
+## 0.7 ✱ CI now splits live tests from offline ones — and the reason is the token cap
+
+Evan added `pytest.ini` with a `live` marker (9 tests) excluded from push/PR CI via `-m "not live"`,
+for two stated reasons: **the free-tier daily token cap has been exhausted repeatedly by test
+runs**, and LLM phrasing varies between runs so those tests fail for reasons unrelated to the commit
+under test.
+
+That is worth a sentence on slide 13, because it is the same constraint as 0.1(a) showing up in a
+second place: *"our test suite had to be split by cost, not by scope."* It also means **"most tests
+run offline with no API key" is now enforced by tooling**, not just true by accident.
+
+## 0.8 Assets and prep
 
 - **Architecture diagram: redrawn and current** ✱ — `recovery_team_rag_architecture.svg` + a 2x PNG
   export (2000x2300), both on `main` as of commit `1f90e94`. The previous one showed only THREE
@@ -312,8 +349,10 @@ thesis of the talk, and slides 6, 8, 9, and 12 are each a different proof of it.
   what order. **A LangGraph orchestrator** runs them as a loop, each writing under the previous
   one's constraints. **Specialists call tools.** **A synthesizer** merges the drafts, and **a
   compliance check** verifies the result against every extracted restriction. ✱
+- **Every conversation persists** — one SQLite row per turn, with route, specialists, sources,
+  restrictions, tokens, and cost as typed columns. Reopenable, and aggregatable. ✱
 - **Stack:** Groq `gpt-oss-120b` / `gpt-oss-20b` · Gemini Flash (vision only) · local MiniLM
-  embeddings · ChromaDB · LangGraph · CLIP · Streamlit · SQLite ✱
+  embeddings · ChromaDB · LangGraph · CLIP · Streamlit · SQLAlchemy/SQLite ✱
 
 **Visual:** four labeled corpus stacks feeding four agent icons. Emphasize four *separate* stacks —
 this slide is the visual answer to slide 3's blob.
@@ -615,9 +654,12 @@ demo are the proof of rows 2, 4, 5, and 8."
 - **Routing accuracy: 15/15** on the frozen 15-question battery, run live 2026-07-18. **⚠️ That run
   predates both the model migration and the planner.** Re-run before presenting or say "last
   verified in July, on the previous model." *(See 0.1(a) — budget the tokens.)*
-- **Test suite: 60 test functions across 9 modules** ✱ — routing, planner bounds, tool dispatch,
-  compliance, conversation memory, GraphRAG, red-team, unit economics, and full E2E. Most run
-  **offline with no API key**.
+- **Test suite: 74 test functions across 10 modules** ✱ — routing, planner bounds, tool dispatch,
+  compliance, conversation memory, persistence, GraphRAG, red-team, unit economics, and full E2E.
+  **CI splits them by cost, not by scope:** 9 are marked `live` (need a real key *and* built
+  collections) and are excluded from push/PR runs, because test runs had repeatedly exhausted the
+  free tier's daily token cap. Everything else runs **offline with no API key** — now enforced by
+  tooling rather than true by accident. ✱
 - **LLM-as-a-judge evaluation** — scores Clinical Safety (1–5), Constraint Adherence (1–5), and
   Brevity (1–5) on adversarial high-risk scenarios: premature 225 lb squatting, skipping prescribed
   PT, forcing shoulder ROM, 500 cal/day diets.
@@ -691,7 +733,9 @@ the exception handler."
 - **Naive retrieval.** Top-k cosine only. No BM25 hybrid, no reranking, no metadata filtering.
 - **Corpus breadth ≠ clinical depth.** Public-domain *patient-education* material, not clinical
   protocols. Exactly why the disclaimer exists.
-- **Health data in plaintext SQLite.** Fine for a local single-user demo; needs real work before any
+- **Health data is now *written to disk* in plaintext SQLite.** ✱ Persistence shipped this cycle,
+  so this stopped being "held in memory" and became "stored." No encryption at rest, no
+  authentication, no retention policy. Fine for a local single-user demo; genuinely blocking for any
   hosted deployment.
 - **Guardrails and GraphRAG are partly wired** — CLI-only, and Kùzu falls back to in-memory.
 
@@ -704,6 +748,7 @@ an ordering invariant that survives a learned planner.
 2. **The trace** — the plan, its stated reasoning, and the tool calls
 3. **The red-flag question** — answered instantly, with no model call at all
 4. **The follow-up** — a question that only makes sense in context, resolved
+5. **The reload** — close the browser, reopen the conversation, everything comes back ✱
 
 > **↑↑↑ END OF SLIDESHOW PLAN ↑↑↑**
 
@@ -723,6 +768,7 @@ an ordering invariant that survives a learned planner.
 - [ ] **Warm-up run.** One throwaway question, fully completed — the first question of a process
       pays for loading MiniLM and CLIP. The class must not watch that.
 - [ ] Sidebar toggle **"Show routing debug trace" = ON** — the trace is half the point
+- [ ] **Pre-seed one saved conversation** so beat 6 has something to reopen instantly ✱
 - [ ] Have one photo ready on the desktop if you plan to demo the upload beat
 - [ ] Browser zoom 125–150%; pick light or dark and stick with it
 - [ ] Second terminal at the repo root for the CLI fallback
@@ -851,7 +897,29 @@ specifically*, refusing to leave its lane, with no router or orchestrator involv
 
 ---
 
-## Beat 6 — Optional: the photo upload ✱ · 4:15–4:45
+## Beat 6 ✱ NEW — It's a product, not a notebook · 4:15–4:55
+
+**This beat was aspirational in the last draft. It works now** (Evan's PR #10).
+
+1. **Reload the browser (F5) in front of the class.** The chat vanishes from the screen.
+2. Reopen it from the sidebar picker → **📂 Open**.
+3. Everything returns: the answer, badges, per-agent sources, binding restrictions, the trace, and
+   the accumulated spend.
+4. Click **🧹 New chat** — two independent recovery scenarios now sit side by side.
+
+> **Say:** "Every turn is a row in SQLite — question, answer, route, which specialists ran, sources,
+> restrictions, tokens, cost. Route and cost are *typed columns*, deliberately, so we can aggregate
+> them: what does routing look like across a hundred users, and what did it cost. That's the
+> difference between a demo and a product."
+
+*Small detail worth pointing at if you have the second:* reopening is an explicit **Open** button
+rather than the dropdown's change event, so browsing past conversations never clobbers the chat you
+have open. And if a save fails, the sidebar says so out loud — same principle as the compliance
+check reporting "could not check" instead of quietly implying success.
+
+---
+
+## Beat 7 — Optional: the photo upload ✱ · 4:55–5:15
 
 **Cut this first if running long.** Click the paperclip in the chat input, attach a photo, and ask
 about it.
@@ -863,10 +931,11 @@ about it.
 
 ---
 
-## Beat 7 — Unit economics · 4:45–5:40 · **PLACEHOLDER**
+## Beat 8 — Unit economics · 5:15–5:45 · **PLACEHOLDER**
 
 1. Point at the sidebar's **unit economics** expander.
-2. Deliver the honesty line — this beat earns its slot on candor, not on numbers.
+2. Point at the sidebar's active-session line — turns, tokens, accumulated spend — which just survived the reload the class watched in beat 6.
+3. Deliver the honesty line — this beat earns its slot on candor, not on numbers.
 
 > **Say:** "This is what we're still building. What you're seeing is an estimator — it prices the
 > question and the final answer at about four characters per token. It does *not* see the router,
@@ -879,7 +948,7 @@ about it.
 
 ---
 
-## Beat 8 — Close · 5:40–6:00
+## Beat 9 — Close · 5:45–6:00
 
 > **Say:** "Four agents, four siloed corpora, a planner that explains itself, tools instead of
 > mental arithmetic, a safety branch that never touches a model, and a full audit trail for every
@@ -894,10 +963,10 @@ about it.
 |---|---|
 | **Groq 429s (rate limit)** ⚠️ | **The likeliest failure now.** The fallback names the cause and stays graceful — you can honestly say "that's layer 8, and you're watching it work." Then pivot to beat 4, which needs no API. Check the budget beforehand so this doesn't happen. |
 | Groq is merely slow | Keep narrating. If it fails outright: `python -m src.orchestrator "…"` in terminal two. |
-| Network dies completely | Beat 4 (red flag) still works — it never calls out. Fully offline. |
+| Network dies completely | Beat 4 (red flag) still works — it never calls out. **So does beat 6**: a reopened conversation renders entirely from SQLite. Two fully offline beats. |
 | A knowledge base is missing | The fallback names the exact rebuild command. Embarrassing but *demonstrates layer 8*. Rebuild is local-only, no API needed. |
-| Running long | Cut beat 6 (photo) first, then beat 5. **Do not cut beat 3** — multi-turn is new and it retires an old limitation. |
-| Running short | Ask a `NUTRITION_ONLY` question for single-specialist contrast with TEAM — doubles as cost-contrast setup for beat 7. |
+| Running long | Cut beat 7 (photo) first, then beat 5. **Do not cut beat 3 or 6** — multi-turn and persistence are both new this cycle, and beat 3 retires an old limitation. |
+| Running short | Ask a `NUTRITION_ONLY` question for single-specialist contrast with TEAM — doubles as cost-contrast setup for beat 8. |
 | Asked to see the guardrails | CLI path only: `python -m src.cli "…"`, or defer to Q&A. |
 
 ---
@@ -974,9 +1043,18 @@ four agents' retrieval *and* CLIP image search. The guardrail would have cost us
 A scanner module for prompt injection, jailbreaks, SQL injection, and PII redaction, with a red-team
 suite. Be accurate: currently on the **CLI** path (`src/cli.py`), not the Streamlit app.
 
-**"You're storing health information."**
-Plaintext SQLite on the local machine, never sent anywhere. Fine for a single-user local demo; needs
-real work before hosted deployment. It's in our limitations.
+**"You're storing health information."** ✱ *(answer got sharper — we now write it to disk)*
+Yes, and as of this cycle we mean that literally: chat persistence shipped, so every turn is a row
+in a local SQLite file — question, answer, route, specialists, sources, restrictions, tokens, cost.
+Plaintext, no encryption at rest, no auth, no retention policy. It never leaves the machine, which
+is fine for a single-user local demo and genuinely blocking for anything hosted. We'd rather state
+that than let "it's local" do more work than it can carry.
+
+**"Why persist route and cost as typed columns instead of dumping JSON?"** ✱
+Because the interesting questions are aggregate ones. Typed columns let us ask what routing looks
+like across a hundred users, which routes are expensive, and whether the planner's choices correlate
+with anything — none of which you can do over a blob without reprocessing every row. It cost us
+almost nothing at write time and it's the difference between a transcript log and a dataset.
 
 **"What happens if a knowledge base is missing?"**
 Verified live: polite fallback naming the cause plus the exact rebuild command, no stack trace.
@@ -1036,13 +1114,13 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | Compliance check ✱ | Re-verifies the answer vs. every constraint; distinguishes `checked: False` from clean |
 | TEAM chain order | **LM-planned** ✱ (was hardcoded most-restrictive-first); inversions detected and logged |
 | Red-flag confidence | 0.97, regex, pre-model |
-| **Test suite** | **60 test functions across 9 modules** ✱ (was 44); most run offline with no API key |
+| **Test suite** | **74 test functions across 10 modules** ✱ (was 44); 9 marked `live` and excluded from push/PR CI — split by *cost*, not scope |
 | **Routing battery** | **15/15**, run live 2026-07-18 — ⚠️ **predates the model migration and the planner** ✱ |
 | High-risk stress tests | ⚠️ **Old "100% pass" is not trustworthy** — the judge scored 5/5 PASS on exception. Fixed to score 0 / `ERROR`. Re-run before quoting. ✱ |
 | GraphRAG | ⚠️ **Kùzu not installed on this machine — falls back to in-memory data** ✱ |
 | Guardrails | Wired into `src/cli.py` only, not `app.py` |
 | `llm-guard` | Evaluated and **rejected** — would downgrade `transformers` and break retrieval + CLIP ✱ |
-| Persistence | SQLAlchemy/SQLite, WAL + foreign keys, one row per turn |
+| Persistence ✱ | `src/database.py` — SQLAlchemy/SQLite, WAL + foreign keys, one row per turn; sessions reopenable from the sidebar, save failures surfaced not swallowed (D31, Evan PR #10) |
 | Licensing | US-gov public domain; NHS under OGL v3.0; provenance in `data/SOURCES.md` |
 
 ---
@@ -1061,10 +1139,14 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 - [ ] **Re-run the high-risk scenario suite** now that the judge no longer fails open — then decide
       whether the number is quotable.
 - [x] ~~Regenerate the architecture diagram~~ — done (`1f90e94`). Still needs cropping or splitting
-      before it goes on a projected slide; see 0.6.
+      before it goes on a projected slide; see 0.8.
 - [ ] Decide the unit-economics call: ship real per-call accounting, or present slide 14 as the
       honest placeholder scripted above. Either is defensible; deciding late is not.
 - [ ] Assign Speaker 1 / 2 / 3 to Evan, Ben, James, and confirm the demo driver.
 - [ ] **One full timed rehearsal — the day before, not the morning of** (token budget).
 - [ ] Merge the stale-docs fix so `Capabilities_Overview.md` and `PROJECT_PLAN.md` don't contradict
       the deck if a TA reads the repo.
+- [ ] **Pre-seed a saved conversation the morning of** so demo beat 6 has something to reopen. ✱
+- [ ] **Re-time the demo — it grew.** Persistence added beat 6 (~40s) and pushed everything after it
+      later. The 6:00 target still holds on paper but has not been rehearsed end to end at this
+      length. ✱
