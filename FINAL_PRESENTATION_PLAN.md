@@ -111,10 +111,55 @@ sites for a four-specialist consult:
 *(A bug found during this revision and fixed: constraint extraction was running for the trainer too,
 whose result is discarded — one wasted 120b call on every TEAM question that included the trainer.)*
 
-**The app's cost estimator still prices only the visible question and the final answer** at ~4
-chars/token. It was understating cost by roughly an order of magnitude when a TEAM question was 7–9
-calls. At 12–18 it understates by more. **This is the single most likely question from a technical
-audience, and slide 14 must be able to answer it.**
+**✱ MEASURED, no longer estimated.** `src/telemetry.py` now records Groq's own token counts for
+every call. First real numbers, from a **single-specialist** question — the cheapest non-red-flag
+route:
+
+| Stage | Tokens | Latency |
+|---|---|---|
+| `consult:pt` | 3,643 | 3,655 ms |
+| `synthesize` | 2,641 | 2,320 ms |
+| `extract_constraints:pt` | 2,475 | 2,323 ms |
+| `compliance_check` | 1,364 | 580 ms |
+| `route` | 988 | 410 ms |
+| `plan` | 453 | 213 ms |
+| **Total** | **11,564** | **6 calls** |
+
+The old chars/4 estimator logged a comparable question at **2,011** tokens — it understates by
+**~5.7×** on the *cheapest* route. "Roughly an order of magnitude" was the right instinct; this is
+the measurement.
+
+**Two findings worth stage time:**
+
+1. **Constraint extraction costs nearly as much as the consult it summarises** (2,475 vs 3,643).
+   That is the real price of the structured-handoff mechanism on slide 9, and it was invisible until
+   we measured it.
+2. **The planner is almost free** (453 tokens). Putting routing and planning on the small model was
+   the right call, and now there is a number proving it rather than an assertion.
+
+## 0.3b ⚠️✱ THE REAL CONSTRAINT IS PER-MINUTE, NOT PER-DAY — this is what will stall the demo
+
+Yesterday's revision blamed the 200,000 token/**day** cap. That was the wrong villain. The one that
+actually bites is **8,000 tokens per MINUTE on `gpt-oss-120b`** (verified live from
+`x-ratelimit-limit-tokens`).
+
+**Even a single-specialist question — 11,564 tokens — exceeds a full minute of budget.** When it is
+exhausted the client backs off *silently*, which from the UI is indistinguishable from a hang. We
+hit exactly this during testing: the app sat on "Consulting the care team…" and looked frozen. It
+was not frozen; it was waiting.
+
+A four-specialist TEAM question is several times that volume, so **beat 2 of the demo is minutes,
+not the "30–60 seconds" the script claims.**
+
+→ **Action, in priority order:**
+1. **Upgrade to a paid Groq tier for the presentation window.** Highest leverage, costs a few
+   dollars, removes the failure mode entirely.
+2. **Drop `k` from 6 to 3 for the demo.** Retrieved context dominates each consult's input tokens;
+   this roughly halves them.
+3. **Pick a flagship question that wakes 2–3 specialists, not 4.** Still shows planning, tools, and
+   constraint handoff, at a fraction of the tokens.
+4. Keep the Observability tab open on a second monitor — if it does stall, you can *show* the
+   ceiling being hit instead of apologising.
 
 ## 0.4 ✱ One old limitation is now fixed — do not read it off the old slide
 
@@ -677,46 +722,62 @@ the exception handler."
 
 ---
 
-### Slide 14 ⭐ — Unit economics · **PLACEHOLDER — feature not yet implemented**
+### Slide 14 ⭐ — Unit economics: what an agent architecture actually costs
 **Speaker:** 3 · **Time:** 1:05
 
-> **⚠️ DECK AGENT: build this as a deliberate, well-designed placeholder.** Lay out the four regions
-> with real labels and a clear visual grid; leave values as `— TBD —`. **Do not invent numbers, and
-> do not carry forward the old $0.59/$0.79 figures — those were Llama-3.3-70B pricing and we no
-> longer run that model** (see 0.2).
+> **✱ NO LONGER A PLACEHOLDER.** `src/telemetry.py` now captures Groq's own token counts, latency,
+> and 429s for every call in the pipeline, tagged by stage. These are measurements, not estimates.
+> **Build this slide around the per-stage table — that is the whole point.**
 
-1. **Cost per query, by route.** RED_FLAG costs **$0.00** — never calls a model. A single-specialist
-   route is ~3 calls. A four-specialist TEAM route is **12–18 sequential Groq calls** ✱. That spread
-   is the interesting number.
-   → *Blank: small table, one row per route.*
-2. **Where the money goes.** Groq inference is metered; embeddings, vector storage, graph, and
-   persistence are **$0.00** — all local. The split is the architectural story.
-   → *Blank: two-segment bar, metered vs. free.*
-3. **The real constraint we hit** ✱ — not dollars, **the free tier's 200,000 token/day cap**, which
-   we exhausted during development. At 12–18 calls per TEAM question that is roughly a dozen full
-   consults per day. *This is a more honest and more interesting cost story than a per-query dollar
-   figure, and it is verified.*
-   → *A real number: `Limit 200000, Used 198872`.*
-4. **Vertical ROI.** Cost per AI consult vs. human clinical consultation ($150–$350/hr across the
-   four specialties).
-   → *Blank: one large comparison figure.*
+**Cost per single-specialist question — the cheapest non-red-flag route:**
 
-**Presenter script (~65s, usable today with the slide blank):**
+| Stage | Tokens | Latency |
+|---|---|---|
+| `consult:pt` | 3,643 | 3,655 ms |
+| `synthesize` | 2,641 | 2,320 ms |
+| `extract_constraints:pt` | 2,475 | 2,323 ms |
+| `compliance_check` | 1,364 | 580 ms |
+| `route` | 988 | 410 ms |
+| `plan` | 453 | 213 ms |
+| **Total** | **11,564** | **6 calls** |
 
-> "What this costs to run is the whole business question for a vertical AI product, and it's the
-> piece we're still building. Structurally: our cost is entirely LLM inference — embeddings, vector
-> store, graph, and persistence are local and free. So cost scales with *how many specialists a
-> question wakes up, and how many tools they call*. A red-flag question costs literally nothing. A
-> single specialist is about three calls. A full four-specialist consult is twelve to eighteen.
+**The three things to say:**
+
+1. **We were wrong by 5.7×, and we can prove it now.** The estimator in the app prices the visible
+   question and answer at chars/4 — it logged a comparable question at 2,011 tokens. Real: 11,564.
+   And that is the *cheapest* route.
+2. **Constraint extraction costs nearly as much as the consult it summarises** — 2,475 vs 3,643.
+   That is the price of the structured-handoff mechanism from slide 9, and it was invisible until we
+   instrumented it. *This is the number that makes the slide interesting: we can now cost an
+   architectural decision, not just a query.*
+3. **The planner is almost free** — 453 tokens. Routing and planning on the small model was a bet;
+   this is the receipt.
+
+**⚠️ The constraint that actually bites is per-MINUTE, not per-day:** `gpt-oss-120b` is capped at
+**8,000 tokens/minute** on the free tier. One specialist question exceeds a full minute of budget.
+When it runs out the client backs off silently, and the app looks frozen. We hit this live.
+
+**Presenter script (~65s):**
+
+> "We instrumented every model call, and the first thing it told us was that our own cost estimate
+> was wrong by almost six times. The estimator priced the question and the answer; it never saw the
+> router, the planner, the constraint extractions, or the compliance check. A single-specialist
+> question is eleven and a half thousand tokens across six calls.
 >
-> Here's the honest state of the estimator in the app: it prices the visible question and the final
-> answer at about four characters per token. It doesn't see the router, the planner, the specialist
-> drafts, the tool calls, the constraint extractions, or the compliance check. It understates real
-> cost by roughly an order of magnitude, and I'd rather tell you that than quote it.
+> But the number I actually care about is this one — constraint extraction costs almost as much as
+> the specialist consult it summarises. That's the mechanism from three slides ago, the thing that
+> makes this a team instead of four chatbots, and it roughly doubles the cost of every specialist in
+> the chain. We couldn't see that before. Now we can put a price on an architectural decision rather
+> than on a query, which is the thing you actually need to make tradeoffs.
 >
-> And the constraint that actually bit us wasn't dollars — it was Groq's free tier daily token cap.
-> We hit it. Two hundred thousand tokens a day is about a dozen full team consults, which is a real
-> product constraint and exactly the kind of thing you only learn by running the thing."
+> And the real constraint turned out not to be money at all. It's eight thousand tokens a minute on
+> the free tier — one question exceeds that, so the client backs off and the app looks frozen. We
+> found that by watching our own demo hang. The fix is a paid tier; the lesson is that for a
+> multi-agent system the binding constraint is throughput, not price."
+
+**Still open:** dollar cost per route (gpt-oss pricing not yet confirmed — see 0.2) and the
+human-consult ROI comparison ($150–$350/hr). Leave those two as `— TBD —`; everything else on this
+slide is real.
 
 ---
 
@@ -931,20 +992,23 @@ about it.
 
 ---
 
-## Beat 8 — Unit economics · 5:15–5:45 · **PLACEHOLDER**
+## Beat 8 ✱ — Unit economics, live · 5:15–5:45
 
-1. Point at the sidebar's **unit economics** expander.
-2. Point at the sidebar's active-session line — turns, tokens, accumulated spend — which just survived the reload the class watched in beat 6.
-3. Deliver the honesty line — this beat earns its slot on candor, not on numbers.
+**No longer a placeholder — there is a real tab to show now.**
 
-> **Say:** "This is what we're still building. What you're seeing is an estimator — it prices the
-> question and the final answer at about four characters per token. It does *not* see the router,
-> the planner, the specialist drafts, the tool calls, the constraint extractions, or the compliance
-> check. That answer you just watched was twelve to eighteen Groq calls; this number reflects
-> roughly one of them. What we're building is real per-call token accounting off the Groq response
-> metadata, attributed per node — so we can say what each *architectural decision* costs, not just
-> what a query costs. And the honest headline is that the binding constraint wasn't money at all:
-> it was the free tier's two-hundred-thousand-token daily cap, which we hit."
+1. Switch to the **📊 Observability** tab. It is live data from the questions the class just watched.
+2. Point at the **per-stage table** — that is the beat.
+3. Point at the **tokens/minute vs the 8,000 ceiling** chart.
+
+> **Say:** "We instrumented every model call, and the first thing it told us was that our own cost
+> estimate was wrong by almost six times — it priced the question and the answer and never saw the
+> router, the planner, the extractions, or the compliance check. But look at this row: constraint
+> extraction costs almost as much as the specialist consult it summarises. That's the mechanism that
+> makes this a team rather than four chatbots, and now we can put a price on it. And the real
+> constraint isn't money — it's eight thousand tokens a minute. One question exceeds it."
+
+*If the app stalled earlier in the demo, come back to this chart and show the ceiling being hit.
+"That wasn't a hang, that was backoff" is a much better recovery than an apology.*
 
 ---
 
@@ -961,7 +1025,7 @@ about it.
 
 | If… | Then… |
 |---|---|
-| **Groq 429s (rate limit)** ⚠️ | **The likeliest failure now.** The fallback names the cause and stays graceful — you can honestly say "that's layer 8, and you're watching it work." Then pivot to beat 4, which needs no API. Check the budget beforehand so this doesn't happen. |
+| **Groq 429s / long spinner** ⚠️ | **The likeliest failure, and it is per-MINUTE not per-day (0.3b).**  Open the Observability tab and show tokens/minute against the 8,000 ceiling — *"that is backoff, not a hang."* Then pivot to beat 4, which needs no API.  Original note: The fallback names the cause and stays graceful — you can honestly say "that's layer 8, and you're watching it work." Then pivot to beat 4, which needs no API. Check the budget beforehand so this doesn't happen. |
 | Groq is merely slow | Keep narrating. If it fails outright: `python -m src.orchestrator "…"` in terminal two. |
 | Network dies completely | Beat 4 (red flag) still works — it never calls out. **So does beat 6**: a reopened conversation renders entirely from SQLite. Two fully offline beats. |
 | A knowledge base is missing | The fallback names the exact rebuild command. Embarrassing but *demonstrates layer 8*. Rebuild is local-only, no API needed. |
@@ -1067,13 +1131,21 @@ Corpus changes shouldn't require retraining, we need file-level citation for eve
 whole thing runs on a free API tier plus local embeddings. Swap `data/` and you have a different
 vertical.
 
-**"What does a query actually cost?"** ⚠️ *the likely slide-14 follow-up*
-Structurally, cost is entirely Groq inference — embeddings, vector store, graph, and persistence are
-local and free. It scales with how many specialists a question wakes up and how many tools they
-call: zero for a red flag, ~3 calls for a single specialist, 12–18 for a full team consult. The app's
-estimator prices only the visible question and answer, so it understates substantially — we'd rather
-say that than quote it. The constraint that actually bit us was the free tier's 200k token/day cap,
-which we exhausted.
+**"What does a query actually cost?"** ✱ *(we can answer this properly now)*
+Measured, not estimated: a single-specialist question is **11,564 tokens across 6 calls**. Cost is
+entirely Groq inference — embeddings, vector store, graph, and persistence are local and free. The
+interesting breakdown is by stage: constraint extraction (2,475) costs nearly as much as the
+specialist consult it summarises (3,643), so the structured-handoff mechanism roughly doubles the
+price of every specialist in the chain. The planner is almost free at 453. Our own chars/4 estimator
+said 2,011 for a comparable question — it was wrong by 5.7×, and we only found that by instrumenting
+it.
+
+**"So what's your actual bottleneck?"** ✱
+Not dollars — **throughput**. `gpt-oss-120b` is capped at 8,000 tokens per *minute* on the free tier,
+and one single-specialist question exceeds that. When the budget runs out the client backs off
+silently, so the app looks frozen. We diagnosed it by watching our own demo appear to hang. For a
+multi-agent system the binding constraint is rate, not price — which is a different engineering
+problem than the one we expected to have.
 
 **"Isn't the multi-agent overhead just latency and cost you invented for yourselves?"**
 Fair, and yes — 12–18 sequential calls and 30–60 seconds. We buy three specific things: enforced
@@ -1103,7 +1175,11 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Groq calls, 4-specialist TEAM** | **12–18** ✱ — was 7–9 before the planner/tools |
 | Groq calls, single specialist | ~3 (router + planner + consult) ✱ |
 | Groq calls, RED_FLAG | **0** |
-| **Free-tier daily cap** | **200,000 tokens/day — verified by hitting it** ✱ |
+| **⚠️ Free-tier PER-MINUTE cap** ✱ | **8,000 tokens/min on `gpt-oss-120b`** — verified from `x-ratelimit-limit-tokens`. **This is the binding constraint, not the daily cap.** One single-specialist question (11,564 tokens) exceeds a full minute of budget |
+| Free-tier daily cap | 200,000 tokens/day — verified by hitting it |
+| **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
+| **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
+| **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
 | Token pricing | **⚠️ UNVERIFIED for gpt-oss — the old $0.59/$0.79 was Llama-3.3-70B. Look it up.** ✱ |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
@@ -1140,8 +1216,13 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
       whether the number is quotable.
 - [x] ~~Regenerate the architecture diagram~~ — done (`1f90e94`). Still needs cropping or splitting
       before it goes on a projected slide; see 0.8.
-- [ ] Decide the unit-economics call: ship real per-call accounting, or present slide 14 as the
-      honest placeholder scripted above. Either is defensible; deciding late is not.
+- [x] ~~Decide the unit-economics call~~ — **shipped.** `src/telemetry.py` captures real per-call
+      usage; slide 14 and demo beat 8 now use measurements. Two values still `— TBD —`: dollar cost
+      per route (needs gpt-oss pricing, see 0.2) and the human-consult ROI figure. ✱
+- [ ] **⚠️ Upgrade the Groq tier for the presentation window** — the per-minute cap (0.3b), not the
+      daily one, is what will stall the live demo. Highest-priority spend. ✱
+- [ ] Consider `k=6 → k=3` for the demo run only — retrieved context dominates each consult's input
+      tokens, so this roughly halves them. ✱
 - [ ] Assign Speaker 1 / 2 / 3 to Evan, Ben, James, and confirm the demo driver.
 - [ ] **One full timed rehearsal — the day before, not the morning of** (token budget).
 - [ ] Merge the stale-docs fix so `Capabilities_Overview.md` and `PROJECT_PLAN.md` don't contradict
