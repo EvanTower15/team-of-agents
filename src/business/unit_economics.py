@@ -1,8 +1,31 @@
 """
-src/business/unit_economics.py — Business Unit Economics & AI Budget Overrun Controls.
+src/business/unit_economics.py — human-care ROI comparison and budget guards.
 
-Tracks Groq Llama-3.3-70B token inference costs, local embedding compute savings,
-and budget overrun guardrails for the Recovery Team Multi-Agent System.
+**This module no longer produces the cost figures the app displays.** It was
+the project's only source of cost until 2026-08-08, and it was wrong twice
+over: `estimate_tokens` is a chars/4 heuristic applied to the visible question
+and answer — roughly one of the 6–14 model calls a question actually makes —
+and it priced them at `llama-3.3-70b-versatile`'s rates, which D27 migrated off
+on 2026-08-07. Measured, a single-specialist question is 11,564 tokens, not the
+~2,000 the estimator reported: understated ~5.7×, then over-priced ~3.9× on
+input. Two errors pointing opposite ways.
+
+What replaced it (D32):
+
+    src/telemetry.py         captures Groq's own per-call token counts
+    src/business/pricing.py  owns the per-model rates
+    src/business/plans.py    turns those into quota, overage, and margin
+
+What still lives here and is still used:
+
+    VerticalStrategyMetrics  the human-care cost comparison, which is a
+                             business argument rather than a token measurement
+    BudgetOverrunGuard       an in-process spend ceiling
+
+`CostCalculator` is kept for the CLI's offline path and for tests, but now
+prices through `business.pricing` instead of holding its own table, so there is
+exactly one place where a Groq price lives. Treat any number it returns as an
+estimate; anything user-facing should read telemetry.
 """
 
 from __future__ import annotations
@@ -11,10 +34,12 @@ import math
 from dataclasses import dataclass
 from typing import Dict, Any
 
-GROQ_PRICING_PER_1M_TOKENS = {
-    "input": 0.59,   # $0.59 per 1M input tokens
-    "output": 0.79,  # $0.79 per 1M output tokens
-}
+from src.business.pricing import MODEL_PRICING_PER_1M
+
+# Kept as a module constant because tests and the CLI import it. Now DERIVED
+# from the pricing table for the model this project actually runs on, rather
+# than being a second, independently-drifting copy of Groq's price list.
+GROQ_PRICING_PER_1M_TOKENS = dict(MODEL_PRICING_PER_1M["openai/gpt-oss-120b"])
 
 HUMAN_CONSULT_HOURLY_RATES = {
     "orthopedic_surgeon": 350.0,
@@ -125,7 +150,7 @@ class VerticalStrategyMetrics:
             "ai_query_cost_usd": query_cost_usd,
             "cost_reduction_multiplier": f"{int(multiplier)}x cheaper",
             "vertical_moat_advantages": [
-                "Groq Llama-3.3-70B Primary Inference Engine",
+                "Groq gpt-oss-120b Primary Inference Engine",
                 "Domain-Siloed RAG (Zero Cross-Specialist Hallucinations)",
                 "Clinician-Grounded Binding Constraints & Safety Guardrails",
                 "Deterministic Red-Flag Medical Emergency Interception",
