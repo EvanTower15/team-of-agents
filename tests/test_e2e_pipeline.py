@@ -19,6 +19,7 @@ def test_e2e_red_flag_interception():
     assert len(res["agents_consulted"]) == 0
 
 
+@pytest.mark.live
 def test_e2e_surgeon_query():
     """Test Orthopedic Surgeon end-to-end RAG query."""
     res = run_e2e_pipeline("What are the surgical graft options for an ACL reconstruction?")
@@ -28,6 +29,7 @@ def test_e2e_surgeon_query():
     assert res["cost_metrics"]["total_tokens"] > 0
 
 
+@pytest.mark.live
 def test_e2e_pt_query():
     """Test Physical Therapy end-to-end RAG query."""
     res = run_e2e_pipeline("How do I perform quad set exercises after knee surgery?")
@@ -36,6 +38,7 @@ def test_e2e_pt_query():
     assert len(res["final_answer"]) > 50
 
 
+@pytest.mark.live
 def test_e2e_nutrition_query():
     """Test Nutritionist end-to-end RAG query."""
     res = run_e2e_pipeline("What vitamins and dietary protein sources accelerate tendon healing?")
@@ -44,6 +47,7 @@ def test_e2e_nutrition_query():
     assert len(res["final_answer"]) > 50
 
 
+@pytest.mark.live
 def test_e2e_team_collaboration_query():
     """Test multi-agent team DAG collaboration end-to-end."""
     guard = BudgetOverrunGuard(max_session_budget=1.00)
