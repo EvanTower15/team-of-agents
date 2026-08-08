@@ -13,16 +13,6 @@ src/orchestrator.py — the LangGraph team workflow.
                             peer_consult -> synthesize_team_answer -> END
                        (agent error / no usable draft) -> fallback_handler -> END
 
-Design notes (mirrors the opim-5517 reference workflow):
-* The graph is a DAG — no cycles, cannot loop.
-* Every node captures its own errors into state instead of raising; one failing
-  agent never crashes the graph — conditional edges route to fallback_handler.
-* On the TEAM route, specialists chain most-restrictive-first — surgeon, then
-  PT, then trainer, then nutritionist — but only the ones whose buckets actually
-  fired in ``route_scores`` are consulted (D4, generalized to four agents). Each
-  downstream specialist receives the upstream drafts, plus their *structured*
-  constraints (src/agents/constraints.py), as ``peer_context``; the nutritionist
-  sits last precisely because it must respect every clinical restriction above it.
 Design notes:
 * **A small LM chooses which specialists run and in what order** (D28,
   src/planner.py), replacing the fixed surgeon->PT->trainer->nutrition edge

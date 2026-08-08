@@ -292,20 +292,10 @@ def retrieve(question: str, collection_name: str, k: int = 4) -> List:
     into an ``error`` field so the orchestrator graph never crashes).
     """
     if _collection_count(collection_name) == 0:
-        agent_flag = _agent_flag_for(collection_name)
         # Derived from ingest.py's AGENT_CORPORA rather than a second hardcoded
         # map -- the previous copy went stale when the surgeon and nutrition
         # collections were added, so their errors said "--agent <agent>".
-        # Imported lazily to avoid a circular import at module load.
-        try:
-            from src.ingest import AGENT_CORPORA
-
-            agent_flag = next(
-                (flag for flag, (_, coll) in AGENT_CORPORA.items() if coll == collection_name),
-                "<agent>",
-            )
-        except Exception:
-            agent_flag = "<agent>"
+        agent_flag = _agent_flag_for(collection_name)
         raise FileNotFoundError(
             f"Knowledge base '{collection_name}' has not been built yet. "
             f"Run: python -m src.ingest --agent {agent_flag}"

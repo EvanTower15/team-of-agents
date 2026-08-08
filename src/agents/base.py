@@ -15,9 +15,11 @@ Safety design (PROJECT_PLAN.md §7):
   * ``peer_context`` is the agent-to-agent handoff (decision D4): on the TEAM
     route each specialist receives every upstream specialist's draft (plus its
     structured constraints) and must respect them. The chain runs
-    most-restrictive-first — surgeon, PT, trainer, nutritionist — so a downstream
-    agent is always the more deferential voice.
-    route the trainer receives the PT's draft and must respect its constraints.
+    most-restrictive-first by default — surgeon, PT, trainer, nutritionist — so a
+    downstream agent is normally the more deferential voice. Since D28 the order
+    is chosen per question by the planner rather than fixed by graph edges, so
+    that is a strong default, not a guarantee; compliance_check is what verifies
+    the finished answer against every constraint regardless of order (D30).
 
 Tool calling (D29). Specialists can now call tools rather than answering from
 a single prompt in one shot:

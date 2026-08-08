@@ -217,10 +217,6 @@ def _session_label(session) -> str:
 with st.sidebar:
     st.markdown("## 🩹 Recovery Team")
     st.caption(
-        "A care team of specialist RAG agents -- Orthopedic Surgeon, Physical "
-        "Therapist, Gym Trainer, and Sports Nutritionist -- coordinated by an LLM "
-        "router and LangGraph orchestrator. Ask one question; the right "
-        "specialist(s) answer."
         "Four specialist RAG agents -- Orthopedic Surgeon, Physical Therapist, "
         "Gym Trainer, and Nutritionist. Ask one question; a planner picks who "
         "answers and in what order."

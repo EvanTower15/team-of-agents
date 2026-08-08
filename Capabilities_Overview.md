@@ -402,15 +402,6 @@ field, verbatim).
 | `ask_clarification` | One focused follow-up question (LLM, with a canned fallback if the LLM is down) |
 | `fallback_handler` | Terminal for dead ends: apologizes, says what went wrong, prints the rebuild commands (now including `--agent surgeon`) |
 
-**Which specialists actually get consulted on TEAM (Phase 4b)** is decided by `route_scores`,
-not a fixed pair: the conditional edges after `route_question`, `consult_surgeon`,
-`consult_pt`, and `consult_trainer` each check whether the *next* specialist's bucket scored
-above zero before routing to it. A PT+trainer TEAM question (no surgeon or nutrition cues)
-skips `consult_surgeon` and `consult_nutritionist` entirely — the chain is exactly as long as
-the question calls for, never padded with an irrelevant specialist. The order
-(**surgeon → PT → trainer → nutritionist**) is most-restrictive-first, so each agent's
-restrictions reach everyone downstream and the nutritionist, which must respect all of them,
-goes last.
 **Which specialists get consulted, and in what order, is now decided by a small LM**
 (`src/planner.py`, gpt-oss-20b). This replaced the fixed `route_scores` + hardcoded-edge
 approach in D28. The planner returns an ordered list — e.g. `["surgeon", "pt"]` — which
@@ -537,13 +528,14 @@ regex-era numbers for historical comparison.
 
 ## 10. Current limitations (know these before Q&A)
 
-- **Single-turn reasoning, even though history is now saved.** Conversations persist to disk
-  and reopen (§12.7), but the agents never receive prior turns as context — each question is
-  still answered from scratch, so "what about my knee?" as a follow-up will not resolve. What
-  changed in Phase 5b is what's *stored*, not what's *reasoned over*; using history to tailor
-  answers is still a Phase B discussion. The flip side of storing it: whatever health details a
-  user types now sit in plaintext in `data/chat_history.db`, which is fine for a local
-  single-user demo but would need real thought before any hosted deployment.
+- **Memory is within-conversation only, and history is plaintext on disk.** This bullet used
+  to say the system was single-turn; that stopped being true on 2026-08-07. A follow-up is now
+  resolved against prior turns of the same conversation before routing (§12.8), and because
+  reopening a chat rebuilds those turns from the database (§12.7), it works across reloads too.
+  What remains a limitation: nothing carries *between* conversations — no user profile, no
+  personalization that outlives a thread — and whatever health details a user types now sit in
+  plaintext in `data/chat_history.db`. Fine for a local single-user demo; it would need real
+  thought before any hosted deployment.
 - **Naive retrieval.** Top-k vector similarity only — no hybrid keyword search, reranking,
   or metadata filters.
 - **Routing now costs an LLM call (Phase 4c).** Every non-RED_FLAG question is classified by
@@ -705,7 +697,12 @@ regex-era numbers for historical comparison.
 
 - **Location:** `src/database.py` (SQLAlchemy ORM over SQLite), wired into `app.py`'s sidebar.
   Ported from the opim-5517 coursework's HW8 "Relational Persistence" module and extended for
-  this project's multi-agent turns (decision D23).
+  this project's multi-agent turns (decision D31).
+- **It is what makes conversation memory (§12.8) survive a reload.** Follow-up resolution reads
+  `st.session_state.messages`, and reopening a conversation rebuilds that list from the stored
+  transcripts — so "what about my knee?" resolves against turns from a session you closed
+  yesterday, not just ones still on screen. Neither feature was built with the other in mind;
+  they compose because both treat the message list as the interface.
 - **The problem it solves:** chat history lived only in Streamlit's `session_state`, so a page
   reload erased the conversation. That made it impossible to compare two recovery scenarios, or
   to walk away and come back — and it made the demo feel like a toy.
@@ -786,11 +783,11 @@ regex-era numbers for historical comparison.
     would impact the use of barbell squats and leg press?" (3 source(s))
   ```
 
-- **Bounded by construction.** The orchestrator graph is a DAG and "cannot loop" is a
-  documented safety property. This is a single straight-through node capped at
+- **Bounded by construction.** This is a single straight-through node capped at
   `MAX_CONSULT_ROUNDS = 1` — not a cyclic edge — so it cannot ping-pong and cannot run away
   with the token budget (a real constraint on a free tier whose daily cap has been hit
-  during testing).
+  during testing). Note the graph is no longer a strict DAG: D28's planner introduced exactly
+  one cycle, `consult_next → consult_next`, bounded by plan length. Peer consult adds none.
 - **Conservative by design:** routine "talk to your doctor" disclaimers do not trigger it;
   it fires only when an answer would materially change. Malformed or self-directed consult
   requests resolve to "no consult" rather than routing to a nonexistent agent.
