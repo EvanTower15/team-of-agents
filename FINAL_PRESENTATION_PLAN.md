@@ -156,9 +156,15 @@ guarantee and being caught.** It is also a genuinely interesting design question
   specialists — it predated the nutritionist entirely, and still asserted the fixed
   surgeon→PT→trainer chain D28 removed. The new one has the planner, the consult_next loop, tools,
   the back-channel, the compliance check, and all four collections.
-  **Caveat for the deck:** it is portrait and dense (nine stages plus a tools panel). It will not
-  read projected at full size — crop to the orchestrator block for slide 5, or split it across
-  slides 5 and 9. Re-export after any edit with:
+  **Two versions exist — use the right one:** ✱
+  - `recovery_team_rag_architecture_slide.png` — **16:9 landscape, 3200x1800. THIS is the one for
+    slide 5.** Simplified for projection: bigger type, fewer words, specialist boxes in the app's
+    real badge colours. Drops the separate RAG-core band (collection names and chunk counts live
+    inside each specialist box instead).
+  - `recovery_team_rag_architecture.png` — portrait, 2000x2300, full detail. Good for the README
+    and the appendix; it will **not** read projected at full size.
+
+  Re-export either after an edit with (swap the filename):
   `python -c "import cairosvg; cairosvg.svg2png(url='recovery_team_rag_architecture.svg', write_to='recovery_team_rag_architecture.png', scale=2, background_color='white')"`
 - **Security guardrails are wired into `src/cli.py`, not `app.py`.** They cannot be demoed in the
   Streamlit UI. Say so if asked.

@@ -1,0 +1,110 @@
+<svg width="100%" viewBox="0 0 1600 900" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Recovery Team architecture — slide version</title>
+<desc>Landscape 16:9 version of the Recovery Team architecture, simplified for projection. A user question, optionally accompanied by a photo converted to text by a vision model, passes through follow-up resolution, a router whose RED_FLAG regex is checked before any model call, and a small-LM planner that chooses which specialists run and in what order. One looped node then consults each specialist in the plan; each receives every upstream draft plus its structured constraints as binding context, and may call calculators, re-query its own collection, or use a gated PubMed search. A bounded back-channel lets one specialist question another. Synthesis merges the drafts and a compliance check re-verifies the answer against every constraint.</desc>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+
+<g style="font-family:'Anthropic Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+
+<!-- ── ROW 1 — front end ─────────────────────────────────────────────────── -->
+<rect x="40" y="60" width="240" height="90" rx="10" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:1px"/>
+<text x="160" y="97" text-anchor="middle" style="fill:rgb(68,68,65);font-size:22px;font-weight:600">User question</text>
+<text x="160" y="124" text-anchor="middle" style="fill:rgb(95,94,90);font-size:15px">+ optional photo → Gemini</text>
+<line x1="284" y1="105" x2="332" y2="105" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="340" y="60" width="250" height="90" rx="10" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:1px"/>
+<text x="465" y="97" text-anchor="middle" style="fill:rgb(12,68,124);font-size:22px;font-weight:600">Resolve follow-up</text>
+<text x="465" y="124" text-anchor="middle" style="fill:rgb(24,95,165);font-size:15px">≤ 6 prior turns → standalone</text>
+<line x1="594" y1="105" x2="642" y2="105" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="650" y="60" width="250" height="90" rx="10" style="fill:rgb(230,241,251);stroke:rgb(24,95,165);stroke-width:1px"/>
+<text x="775" y="97" text-anchor="middle" style="fill:rgb(12,68,124);font-size:22px;font-weight:600">Router</text>
+<text x="775" y="124" text-anchor="middle" style="fill:rgb(24,95,165);font-size:15px">RED_FLAG regex checked first</text>
+<line x1="904" y1="105" x2="952" y2="105" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="960" y="60" width="270" height="90" rx="10" style="fill:rgb(250,238,218);stroke:rgb(133,79,11);stroke-width:1.5px"/>
+<text x="1095" y="97" text-anchor="middle" style="fill:rgb(99,56,6);font-size:22px;font-weight:600">Planner · 20b</text>
+<text x="1095" y="124" text-anchor="middle" style="fill:rgb(133,79,11);font-size:15px">who runs, and in what order</text>
+
+<!-- RED_FLAG peels off at the router, before the planner ever runs -->
+<line x1="775" y1="154" x2="775" y2="188" marker-end="url(#a)" style="stroke:rgb(153,60,29);stroke-width:2px"/>
+<rect x="620" y="192" width="310" height="72" rx="10" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1.5px"/>
+<text x="775" y="222" text-anchor="middle" style="fill:rgb(113,43,19);font-size:19px;font-weight:600">RED_FLAG → canned answer</text>
+<text x="775" y="247" text-anchor="middle" style="fill:rgb(153,60,29);font-size:15px">never reaches a model · 0 tokens</text>
+
+<line x1="1095" y1="154" x2="1095" y2="286" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+<text x="1110" y="228" style="fill:rgb(82,81,78);font-size:15px">plan = ["surgeon", "pt", …]</text>
+
+<!-- ── ROW 2 — the loop ──────────────────────────────────────────────────── -->
+<rect x="40" y="290" width="1190" height="318" rx="16" style="fill:none;stroke:rgb(83,74,183);stroke-width:2px;stroke-dasharray:7 5"/>
+<text x="62" y="324" style="fill:rgb(60,52,137);font-size:20px;font-weight:600">consult_next — ONE node, looped over the plan</text>
+
+<rect x="60" y="344" width="270" height="122" rx="10" style="fill:rgb(238,240,254);stroke:rgb(99,102,241);stroke-width:2px"/>
+<text x="195" y="382" text-anchor="middle" style="fill:rgb(67,56,202);font-size:20px;font-weight:600">Surgeon</text>
+<text x="195" y="411" text-anchor="middle" style="fill:rgb(79,70,229);font-size:15px">post-op protocols</text>
+<text x="195" y="438" text-anchor="middle" style="fill:rgb(79,70,229);font-size:15px">surgeon_docs · 121</text>
+
+<rect x="350" y="344" width="270" height="122" rx="10" style="fill:rgb(230,246,244);stroke:rgb(13,148,136);stroke-width:2px"/>
+<text x="485" y="382" text-anchor="middle" style="fill:rgb(15,118,110);font-size:20px;font-weight:600">Physical Therapist</text>
+<text x="485" y="411" text-anchor="middle" style="fill:rgb(13,148,136);font-size:15px">rehab · pain vs soreness</text>
+<text x="485" y="438" text-anchor="middle" style="fill:rgb(13,148,136);font-size:15px">pt_docs · 1,050</text>
+
+<rect x="640" y="344" width="270" height="122" rx="10" style="fill:rgb(253,238,229);stroke:rgb(234,88,12);stroke-width:2px"/>
+<text x="775" y="382" text-anchor="middle" style="fill:rgb(154,52,18);font-size:20px;font-weight:600">Gym Trainer</text>
+<text x="775" y="411" text-anchor="middle" style="fill:rgb(194,65,12);font-size:15px">programming · overload</text>
+<text x="775" y="438" text-anchor="middle" style="fill:rgb(194,65,12);font-size:15px">trainer_docs · 536</text>
+
+<rect x="930" y="344" width="270" height="122" rx="10" style="fill:rgb(233,247,238);stroke:rgb(22,163,74);stroke-width:2px"/>
+<text x="1065" y="382" text-anchor="middle" style="fill:rgb(21,128,61);font-size:20px;font-weight:600">Nutritionist</text>
+<text x="1065" y="411" text-anchor="middle" style="fill:rgb(22,163,74);font-size:15px">recovery nutrition</text>
+<text x="1065" y="438" text-anchor="middle" style="fill:rgb(22,163,74);font-size:15px">nutrition_kb · 179</text>
+
+<line x1="332" y1="405" x2="346" y2="405" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+<line x1="622" y1="405" x2="636" y2="405" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+<line x1="912" y1="405" x2="926" y2="405" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<!-- back-channel: the arrow that goes the other way -->
+<line x1="1065" y1="500" x2="205" y2="500" marker-end="url(#a)" style="stroke:rgb(24,95,165);stroke-width:2px;stroke-dasharray:6 4"/>
+<text x="635" y="528" text-anchor="middle" style="fill:rgb(24,95,165);font-size:16px;font-weight:600">back-channel — a specialist can ask another (max 1 round-trip)</text>
+
+<text x="635" y="562" text-anchor="middle" style="fill:rgb(82,81,78);font-size:16px">Each gets ALL upstream drafts + their structured constraints as BINDING context</text>
+<text x="635" y="588" text-anchor="middle" style="fill:rgb(82,81,78);font-size:16px">Order is LM-chosen — the row above is ONE example plan, not a fixed chain</text>
+
+<!-- ── Tools ─────────────────────────────────────────────────────────────── -->
+<line x1="1234" y1="405" x2="1256" y2="405" marker-end="url(#a)" marker-start="url(#a)" style="stroke:rgb(153,60,29);stroke-width:2px"/>
+<rect x="1260" y="290" width="300" height="318" rx="14" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:1.5px"/>
+<text x="1410" y="328" text-anchor="middle" style="fill:rgb(113,43,19);font-size:21px;font-weight:600">Tools</text>
+<text x="1282" y="372" style="fill:rgb(153,60,29);font-size:17px;font-weight:600">Calculators</text>
+<text x="1282" y="396" style="fill:rgb(82,81,78);font-size:15px">protein · load · 1RM · phase</text>
+<text x="1282" y="446" style="fill:rgb(153,60,29);font-size:17px;font-weight:600">Re-query own corpus</text>
+<text x="1282" y="470" style="fill:rgb(82,81,78);font-size:15px">cannot cross the silo</text>
+<text x="1282" y="520" style="fill:rgb(153,60,29);font-size:17px;font-weight:600">PubMed — GATED</text>
+<text x="1282" y="544" style="fill:rgb(82,81,78);font-size:15px">offered only if the corpus</text>
+<text x="1282" y="566" style="fill:rgb(82,81,78);font-size:15px">came back empty</text>
+<text x="1410" y="594" text-anchor="middle" style="fill:rgb(82,81,78);font-size:14px">max 2 tool rounds</text>
+
+<!-- ── ROW 3 — back end ──────────────────────────────────────────────────── -->
+<line x1="635" y1="612" x2="635" y2="654" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="230" y="658" width="300" height="88" rx="10" style="fill:rgb(238,237,254);stroke:rgb(83,74,183);stroke-width:1.5px"/>
+<text x="380" y="694" text-anchor="middle" style="fill:rgb(60,52,137);font-size:21px;font-weight:600">Synthesize</text>
+<text x="380" y="720" text-anchor="middle" style="fill:rgb(83,74,183);font-size:15px">attribute · keep every citation</text>
+<line x1="534" y1="702" x2="582" y2="702" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="590" y="658" width="330" height="88" rx="10" style="fill:rgb(250,236,231);stroke:rgb(153,60,29);stroke-width:2px"/>
+<text x="755" y="694" text-anchor="middle" style="fill:rgb(113,43,19);font-size:21px;font-weight:600">Compliance check</text>
+<text x="755" y="720" text-anchor="middle" style="fill:rgb(153,60,29);font-size:15px">answer re-verified vs. every constraint</text>
+<line x1="924" y1="702" x2="972" y2="702" marker-end="url(#a)" style="stroke:rgb(137,135,129);stroke-width:2px"/>
+
+<rect x="980" y="658" width="300" height="88" rx="10" style="fill:rgb(241,239,232);stroke:rgb(95,94,90);stroke-width:1px"/>
+<text x="1130" y="694" text-anchor="middle" style="fill:rgb(68,68,65);font-size:21px;font-weight:600">Final answer</text>
+<text x="1130" y="720" text-anchor="middle" style="fill:rgb(95,94,90);font-size:15px">+ citations + disclaimer</text>
+
+<!-- ── Bottom line ───────────────────────────────────────────────────────── -->
+<text x="800" y="800" text-anchor="middle" style="fill:rgb(82,81,78);font-size:17px">Knowledge siloing is PHYSICAL — one Chroma collection per agent · 1,886 chunks · local MiniLM embeddings · k=6</text>
+<text x="800" y="830" text-anchor="middle" style="fill:rgb(82,81,78);font-size:17px">Every node writes one line to an execution trace — who ran, in what order, WHY that order, and which tools fired</text>
+<text x="800" y="866" text-anchor="middle" style="fill:rgb(137,135,129);font-size:15px">Groq gpt-oss-120b (specialists, synthesis) · gpt-oss-20b (router, planner, compliance) · Gemini Flash (vision)</text>
+
+</g>
+</svg>
