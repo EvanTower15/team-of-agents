@@ -1,0 +1,1064 @@
+# Final Presentation — Plan (15 slides / ~14:00 + 6:00 live demo)
+
+> **What this is:** the working plan for the **final** presentation of the Recovery Team project
+> to a graduate-level generative AI class. Supersedes [PRESENTATION_PREVIEW.md](PRESENTATION_PREVIEW.md),
+> which was the informal 10-minute in-class preview.
+>
+> **Budget:** 12–15 min slideshow (this plan targets **14:00**) + 5–7 min live Streamlit demo
+> (this plan targets **6:00**).
+>
+> **Audience:** graduate generative-AI students. They know RAG, embeddings, vector search, and
+> agent frameworks. Do not define them. Spend the time on architecture *decisions*, the evidence
+> that they worked, and the differentiation argument.
+>
+> **How to use this file:**
+> - [Part 0](#part-0--read-this-before-you-build-anything) — corrections and prep that must happen first.
+> - [Part 1](#part-1--slideshow-plan) — the slide-by-slide plan. Self-contained; paste whole into the deck agent.
+> - [Part 2](#part-2--live-demo-script) — the demo script, for us.
+> - [Part 3](#part-3--qa-prep) — honest-limitations cheat sheet.
+> - [Part 4](#part-4--fact-sheet) — every number, verified against the repo.
+>
+> **⚠️ REVISED 2026-08-07 (evening).** The system changed substantially the same day this plan was
+> written: a model migration, an LM planner, specialist tool calling, conversation memory, and a
+> back-channel between agents all landed. **Roughly a third of this document's previous claims went
+> stale in one afternoon.** Everything below is re-verified against the repo as of the revision, and
+> changed items are marked ✱. Read Part 0 in full before building anything.
+
+---
+
+# PART 0 — Read this before you build anything
+
+## 0.1 ⚠️ The three things that will embarrass you if nobody checks them
+
+These are live, verified problems as of the revision. None is hard to fix; all are easy to get
+caught on.
+
+**(a) The Groq free tier has a 200,000-token daily cap, and we hit it today.** Verified from a real
+429: `Limit 200000, Used 198872`. A four-specialist TEAM question now costs **12–18 Groq calls**
+(see 0.3), so the daily budget is roughly **a dozen full team consults**. If three people rehearse
+the demo the morning of, *the presentation itself may 429 on stage.*
+→ **Action:** do not rehearse against the live API on presentation day. Rehearse the day before,
+and confirm remaining budget at console.groq.com before you walk in. Consider a paid Dev tier
+upgrade for the presentation window — it is the single cheapest risk reduction available.
+
+**(b) Kùzu is not installed** — `import kuzu` → `No module named 'kuzu'`. The orchestrator prints
+`[graph_rag] KuzuDB unavailable, using in-memory fallback data` and runs on a hardcoded in-memory
+dict. Slide 11 and the fact sheet previously described "a Kùzu property graph" as a shipped
+capability. **On this machine it is a stub.**
+→ **Action:** either `pip install kuzu` and verify the real graph loads, or describe it accurately
+on the slide. Do not say "Kùzu property graph" while it is falling back.
+
+**(c) ✅ RESOLVED — but it changed the corpus numbers.** `pt_docs` had gone missing entirely;
+Chroma held only 3 of 4 collections. The cause was a real bug, now fixed: `DoclingLoader` can fail
+at *conversion* time (on a machine with no C++ compiler it raises `InvalidCxxCompiler: Compiler: cl
+is not found`), but `rag_core.load_folder_documents` only guarded the *import*. One unconvertible
+PDF aborted the entire ingest and left the collection unbuilt.
+
+**Rebuilt with the per-file fallback, and it came back 5x bigger: 203 → 1,050 chunks.** Four PDFs
+had never made it in — the NIA 34-page older-adult exercise guide and three CDC STEADI documents,
+which slide 6 cites as the PT corpus's *anchor sources*. Verified: all 40 files in `data/pt/` are
+now represented in the collection, none missing.
+
+*Be honest about the 5x if asked:* part of it is genuinely new material, and part is that the
+PyPDF fallback is a coarser parser than Docling and produces more chunks from the same pages.
+→ **Action:** confirm all four collections are present and non-empty the morning of. The PT corpus
+is the one the flagship demo needs.
+
+## 0.2 ✱ The model changed. Every "Llama-3.3-70B" in the old deck is wrong.
+
+Groq retires `llama-3.3-70b-versatile` on **2026-08-16** — before or right around presentation day.
+Migrated 2026-08-07 (D27):
+
+| Job | Model |
+|---|---|
+| Specialists, synthesis, constraint extraction, peer-consult detection, follow-up resolution | `openai/gpt-oss-120b` |
+| Routing, planning, compliance check | `openai/gpt-oss-20b` (`reasoning_effort="low"`) |
+| User photo description only | Google `gemini-flash-latest` — the one non-Groq call ✱ |
+
+Two things follow that the deck must reflect:
+
+- **The token pricing on the old slide 13 ($0.59/$0.79 per 1M) was Llama-3.3-70B pricing and no
+  longer applies.** Do not reuse it. Look up current gpt-oss pricing at console.groq.com and put
+  the real number in, or leave it blank — **do not carry the old number forward.**
+- **gpt-oss models emit reasoning tokens before content.** They cost more per call than the model
+  they replaced. Anything setting `max_tokens` must leave headroom or `content` comes back empty.
+
+**Why it's worth 15 seconds on stage:** we caught a vendor deprecation nine days early and migrated
+without changing the architecture, because every model call goes through two factory functions in
+`rag_core.py`. That is a real engineering point about seams, and it is cheap to make.
+
+## 0.3 ✱ Cost per TEAM question roughly doubled, and the app's estimator is worse than before
+
+The old plan said 7–9 Groq calls for a TEAM question. That is now low. Counting the actual call
+sites for a four-specialist consult:
+
+| Stage | Calls | Model |
+|---|---|---|
+| Follow-up resolution (only when history exists) ✱ | 0–1 | 120b |
+| Router classification | 1 | 20b |
+| **Planner — which specialists, in what order** ✱ | 1 | 20b |
+| Specialist consults (4 × 1 base + up to 2 tool rounds) ✱ | 4–12 | 120b |
+| Constraint extraction (surgeon, PT, nutritionist — **not** the trainer) | 3 | 120b |
+| Peer-consult detection, + the back-channel consult if one fires ✱ | 1–2 | 120b |
+| Synthesis | 1 | 120b |
+| **Compliance check** ✱ | 1 | 20b |
+| **Total** | **12–18** | |
+
+*(A bug found during this revision and fixed: constraint extraction was running for the trainer too,
+whose result is discarded — one wasted 120b call on every TEAM question that included the trainer.)*
+
+**The app's cost estimator still prices only the visible question and the final answer** at ~4
+chars/token. It was understating cost by roughly an order of magnitude when a TEAM question was 7–9
+calls. At 12–18 it understates by more. **This is the single most likely question from a technical
+audience, and slide 14 must be able to answer it.**
+
+## 0.4 ✱ One old limitation is now fixed — do not read it off the old slide
+
+The previous deck's headline limitation was *"no multi-turn reasoning — each question is answered
+from scratch."* **That shipped.** `src/conversation.py` resolves a follow-up against up to 6 prior
+turns into a standalone question *before* the pipeline runs, so routing and retrieval both see the
+full context. "What about my knee?" now resolves.
+
+The design point is worth making: history is resolved **once, up front**, rather than injected into
+every specialist's prompt — because chat history is not retrieval evidence, and mixing it into
+specialist context would blur the grounding rule that is the whole anti-hallucination story.
+
+Slide 15 has a replacement set of genuine limitations. The most important one is new (see D28
+below) and it is *more* interesting than the one it replaces.
+
+## 0.5 ⚠️ The honest-limitation you must not skip: we gave up a safety guarantee
+
+This is the one item in this document that a sharp grader could use against you if you present the
+old story. Say it first instead.
+
+The old deck claimed a **fixed, hardcoded clinical priority order** — surgeon → PT → trainer →
+nutritionist — which guaranteed *by construction* that a restrictive specialist's constraints
+reached everyone downstream. **That is no longer true.** A small LM now chooses both the roster and
+the order (D28). A plan of `["trainer", "surgeon"]` would write the training plan before the
+surgeon's restrictions exist.
+
+Three things contain it, and none fully restores the guarantee:
+
+1. RED_FLAG still runs on regex **before** the planner is ever called.
+2. The planner prompt states most-restrictive-first as a strong default, and **ordering inversions
+   are detected in Python (`violates_restrictiveness`) and written to the execution trace.**
+3. `compliance_check` (D30) re-verifies the finished answer against every extracted constraint
+   *regardless of what order ran* — recovering after the fact what ordering used to guarantee up front.
+
+**Presenting this as a tradeoff you made knowingly is strictly stronger than presenting the old
+guarantee and being caught.** It is also a genuinely interesting design question for this audience:
+*when is a learned decision worth a lost invariant, and what do you build to compensate?*
+
+## 0.6 Assets and prep
+
+- **Architecture diagram: redrawn and current** ✱ — `recovery_team_rag_architecture.svg` + a 2x PNG
+  export (2000x2300), both on `main` as of commit `1f90e94`. The previous one showed only THREE
+  specialists — it predated the nutritionist entirely, and still asserted the fixed
+  surgeon→PT→trainer chain D28 removed. The new one has the planner, the consult_next loop, tools,
+  the back-channel, the compliance check, and all four collections.
+  **Caveat for the deck:** it is portrait and dense (nine stages plus a tools panel). It will not
+  read projected at full size — crop to the orchestrator block for slide 5, or split it across
+  slides 5 and 9. Re-export after any edit with:
+  `python -c "import cairosvg; cairosvg.svg2png(url='recovery_team_rag_architecture.svg', write_to='recovery_team_rag_architecture.png', scale=2, background_color='white')"`
+- **Security guardrails are wired into `src/cli.py`, not `app.py`.** They cannot be demoed in the
+  Streamlit UI. Say so if asked.
+- **`llm-guard` was evaluated and rejected** — it would have downgraded `transformers` 5.14.1 → 4.51.3,
+  breaking `sentence-transformers` and with it all four agents' retrieval *and* CLIP. Good answer to
+  "why not use an off-the-shelf guardrail library": we tried, and the dependency cost was the
+  entire retrieval layer.
+
+---
+
+# PART 1 — SLIDESHOW PLAN
+
+> **↓↓↓ PASTE FROM HERE TO THE "END OF SLIDESHOW PLAN" MARKER INTO THE DECK AGENT ↓↓↓**
+
+## Deck-level instructions
+
+Build a **15-slide** deck for a **14-minute** final presentation to a graduate-level generative-AI
+class. Three presenters share it; speaker assignments and time budgets are marked per slide and
+sum to 14:00.
+
+**Tone and design constraints:**
+
+- Technical peer audience. They know RAG, embeddings, vector search, and agent orchestration.
+  Never define those terms on a slide.
+- **Visual-forward, low text.** Max ~6 short lines of body text per slide. The presenter carries
+  the argument; the slide carries the diagram or the number.
+- Consistent specialist iconography and color — 🦴 Orthopedic Surgeon · 🩺 Physical Therapist ·
+  🏋️ Gym Trainer · 🥗 Sports Nutritionist, in the app's actual badge colors so slides and demo
+  match: surgeon `#6366f1` · PT `#0d9488` · trainer `#ea580c` · nutritionist `#16a34a`.
+- **The colored icons mean OUR AGENTS, and nothing else.** Slides 2 and 3 describe the *problem* —
+  the patient's real-world human care team, and a general-purpose LLM. Draw the four professionals
+  there as **grey generic human figures**. The colored icons make their first appearance on slide 4,
+  where we introduce the agents, and are used consistently from then on. Reusing them on slides 2–3
+  would make the problem statement read as a description of our system.
+- **Monospace** for anything that is real system output — traces, route labels, filenames, tool
+  calls, code. Real output is the deck's best evidence; make it look like output.
+- No animations beyond simple builds. No stock photos of doctors or gyms.
+- Slide numbers on. One-line footer with the project name.
+- Four slides are marked ⭐ — **8, 9, 12, and 14**. They carry the argument. Give them the most
+  design attention and do not let them get compressed if the deck runs long.
+
+**The single argument the deck must land:**
+
+> *A general-purpose LLM answering this question is one model, one undifferentiated knowledge pool,
+> and one shot. Our system is a planned sequence of narrow agents — each physically restricted to
+> its own vetted corpus, each able to call tools and re-query, each writing under the previous one's
+> binding constraints, with the whole thing verified afterward and auditable line by line. The
+> difference is not prompt quality. It is that there are **steps**, and every step leaves a record.*
+
+**Speaker split (by role, not by slide count):**
+
+| Speaker | Slides | Time | Owns |
+|---|---|---|---|
+| **1** | 1–4 | 3:30 | Problem, product, why this shape |
+| **2** | 5–10 | 6:00 | Architecture, the agentic loop, tools, safety |
+| **3** | 11–15 | 4:30 | Differentiation, evidence, economics, limits |
+
+**Recommended:** Speaker 1 also drives the live demo — they opened with the patient's four
+questions, they close by showing the system answer them. Swap freely, but the demo driver should be
+whoever has rehearsed it most.
+
+---
+
+## ACT I — The problem and the product · Speaker 1 · 3:30
+
+### Slide 1 — Title / hook
+**Speaker:** 1 · **Time:** 0:20
+
+- **Title:** Recovery Team — a care team of four RAG agents
+- **Subtitle:** One chat box. Four specialists. Nothing invented.
+- Evan · Ben · James — OPIM 5517
+- Small standing disclaimer: *Educational support tool — not a substitute for a licensed clinician.*
+
+**Visual:** the four specialist icons in a row, arrows converging into a single chat bubble.
+
+**Speaker note:** "Someone recovering from knee surgery has questions for four different
+professionals and access to maybe one of them. We built the other three."
+
+---
+
+### Slide 2 — The problem: one patient, four experts
+**Speaker:** 1 · **Time:** 1:00
+
+One patient, eight weeks post-op, four questions belonging to four different professionals:
+
+- *"Can I put weight on it yet?"* → 🦴 surgeon
+- *"Is this pain normal or a warning sign?"* → 🩺 physical therapist
+- *"How do I get back to lifting?"* → 🏋️ gym trainer
+- *"What should I eat to heal faster?"* → 🥗 nutritionist
+
+Then the constraint that makes this a real problem: **in the real world, these four professionals
+do not talk to each other.** The surgeon's weight-bearing restriction never reaches the trainer. The
+patient is the integration layer, and the patient is the least qualified person in the loop.
+
+> **⚠️ DECK AGENT — do not reuse the four colored specialist icons on this slide.** This slide is
+> about the patient's **real-world human care team**, not about our agents. Draw these four as
+> **grey, generic human figures**. The colored 🦴🩺🏋️🥗 icons are reserved for our agents and must
+> first appear on slide 4. If both slides use the same icons, this slide reads as "our agents don't
+> communicate" — which is the opposite of what slides 8 and 9 prove.
+
+**Visual:** one patient icon centered, four question bubbles radiating out to four **grey human**
+expert figures — with the *lateral* arrows between them drawn dashed/greyed and marked with a small
+✕, showing the coordination that does not happen. This dashed-lateral motif is the setup; slide 9
+pays it off by redrawing the same laterals as solid arrows.
+
+**Speaker note:** Land the coordination gap, not just the access gap — and **say "in the real world"
+out loud** so nobody hears this as a description of our system. Cost and access are the obvious
+framing; the *handoff failure* is what our architecture actually addresses. Plant the flag here:
+*"Hold onto those broken arrows — in about four minutes I'm going to show you them working."*
+
+---
+
+### Slide 3 — Why one general model can't do this
+**Speaker:** 1 · **Time:** 1:05
+
+Three failure modes of asking one general assistant all four questions:
+
+1. **Hallucination** — it will produce a confident post-op timeline it has no source for, and you
+   cannot tell which claims came from where.
+2. **Instruction drift** — a constraint stated in turn 2 quietly stops binding by turn 6. Nothing
+   enforces it; it's just tokens competing with other tokens in a context window.
+3. **Fake pluralism** ⭐ — "act as a surgeon, a PT, and a trainer" is *one* model producing four
+   voices from *one* undifferentiated pool of knowledge. The personas are **stylistic, not
+   epistemic**. The disagreement between experts — the clinically important part — never actually
+   happens, because there is nothing there to disagree.
+
+**Visual:** one grey "LLM" box straddling the same four **grey human figures** from slide 2 (still
+not the colored agent icons — see the deck-level rule), with the four corpora it would need drawn as
+a single undifferentiated blob.
+
+**Speaker note:** Land failure mode 3 hardest and say "stylistic, not epistemic" out loud. It is the
+thesis of the talk, and slides 6, 8, 9, and 12 are each a different proof of it.
+
+---
+
+### Slide 4 — What we built
+**Speaker:** 1 → hand off to 2 · **Time:** 1:05
+
+- **Four specialist agents**, each with its **own** curated corpus and its **own** vector-store
+  collection — 🦴 surgeon · 🩺 PT · 🏋️ trainer · 🥗 nutritionist
+- **90 license-logged documents → 1,886 chunks** across four siloed collections. NIH, MedlinePlus,
+  CDC, NHS, HHS. Every file carries a title/source/license/fetch-date header and is committed to
+  git. US-government content is public domain; NHS pages are Open Government Licence v3.0.
+- **A router** classifies the question. **A small-LM planner** decides which specialists run and in
+  what order. **A LangGraph orchestrator** runs them as a loop, each writing under the previous
+  one's constraints. **Specialists call tools.** **A synthesizer** merges the drafts, and **a
+  compliance check** verifies the result against every extracted restriction. ✱
+- **Stack:** Groq `gpt-oss-120b` / `gpt-oss-20b` · Gemini Flash (vision only) · local MiniLM
+  embeddings · ChromaDB · LangGraph · CLIP · Streamlit · SQLite ✱
+
+**Visual:** four labeled corpus stacks feeding four agent icons. Emphasize four *separate* stacks —
+this slide is the visual answer to slide 3's blob.
+
+**Speaker note:** "One design decision drives everything else: each agent's expertise boundary is
+enforced by *what it can retrieve*, not by what its prompt promises."
+
+---
+
+## ACT II — Architecture, the agentic loop, and safety · Speaker 2 · 6:00
+
+### Slide 5 — Architecture
+**Speaker:** 2 · **Time:** 1:15
+
+```
+                       user question  (+ optional photo → Gemini → text description)
+                             │
+                             ▼
+                   ┌───────────────────┐
+                   │ RESOLVE FOLLOW-UP │  ← ≤6 prior turns → standalone question
+                   └─────────┬─────────┘
+                             ▼
+                   ┌───────────────────┐
+                   │      ROUTER       │  RED_FLAG regex checked FIRST, always wins
+                   └─────────┬─────────┘
+       ┌───────────┬─────────┴────────┬───────────┬──────────┐
+       ▼           ▼                  ▼           ▼          ▼
+  single-agent   TEAM            NUTRITION    RED_FLAG    CLARIFY
+       │           │                  │           │          │
+       └─────┬─────┘                  │      canned safety  follow-up
+             ▼                        │      response       question
+    ┌──────────────────┐              │      (NO LLM)
+    │  PLANNER (20b)   │  which specialists, in what order
+    └────────┬─────────┘
+             ▼
+    ┌──────────────────┐
+    │   CONSULT_NEXT   │◄─┐  one node, looped over the plan
+    │  retrieve → tools│  │  each agent gets ALL upstream drafts
+    │  → draft →       │  │  + their structured constraints as
+    │  extract         │  │  BINDING peer_context
+    └────────┬─────────┘  │
+             └────────────┘  (bounded by plan length ≤ 4)
+             ▼
+    ┌──────────────────┐
+    │   PEER_CONSULT   │  back-channel: one specialist asks another
+    └────────┬─────────┘  (≤1 round-trip)
+             ▼
+    ┌──────────────────┐
+    │    SYNTHESIZE    │  attribute each specialist, keep every citation
+    └────────┬─────────┘
+             ▼
+    ┌──────────────────┐
+    │ COMPLIANCE CHECK │  answer re-verified against every constraint
+    └────────┬─────────┘
+             ▼
+      final answer + citations + code-appended disclaimer
+```
+
+Three call-outs directly on the diagram:
+
+- **Silos** — the trainer *cannot* retrieve surgeon documents. Enforced by separate collections,
+  not by a prompt.
+- **The plan is data, not topology** ✱ — one `consult_next` node loops over a list the planner
+  produced. Adding a fifth specialist changes a list, not the graph.
+- **RED_FLAG bypasses everything.** That branch never touches an LLM.
+
+**Speaker note:** "Every box is a node in a LangGraph state machine over a shared typed state. There
+is exactly one cycle — `consult_next` back to itself — and it is bounded by plan length, which the
+planner caps and de-duplicates at the size of the roster. Every node appends one line to an
+execution trace, which is why I can *prove* claims later instead of asserting them."
+
+---
+
+### Slide 6 — Siloed retrieval: four corpora, four collections
+**Speaker:** 2 · **Time:** 0:45
+
+| | 🦴 Surgeon | 🩺 PT | 🏋️ Trainer | 🥗 Nutritionist |
+|---|---|---|---|---|
+| Collection | `surgeon_docs` | `pt_docs` | `trainer_docs` | `nutrition_kb` |
+| Documents | 18 | 40 | 22 | 10 |
+| Chunks | 121 | **1,050** ✱ | 536 | 179 |
+| Anchor source | MedlinePlus post-op / discharge instructions | NIA 34-page older-adult exercise guide, CDC STEADI | HHS Physical Activity Guidelines, 2nd ed. (118 pp) | NIH Office of Dietary Supplements fact sheets |
+
+- ~1,000-char chunks, 150-char overlap; embedded locally by `all-MiniLM-L6-v2` (384-dim, CPU, free);
+  top-k cosine at **k=6** per agent.
+- **Local embeddings were deliberate:** zero API cost, zero rate limits, ingestion works offline.
+  The course reference project used a cloud embeddings API and had to sleep 60 seconds per batch to
+  dodge rate limits. We deleted that entire class of problem — *and given that we hit Groq's daily
+  token cap during development, that decision aged well.*
+- Three elderly-onboarding documents appear in **both** the PT and trainer corpora *on purpose* —
+  the collections are physically siloed, so shared content must be physically duplicated. That
+  duplication is the cost of the silo, and we paid it knowingly.
+
+**Speaker note:** "This is the epistemic boundary from slide 3, made physical. There is no prompt in
+this system that says 'don't answer nutrition questions.' The trainer simply has no nutrition
+documents to retrieve."
+
+---
+
+### Slide 7 — The router: we deleted our own regex, then put a floor under it
+**Speaker:** 2 · **Time:** 0:55
+
+A three-act story — the most genuinely interesting engineering narrative in the project, because it
+went in both directions.
+
+1. **v1: weighted regex cue scorer.** Fast, free, deterministic. Brittle. The bug that killed it: a
+   pattern written to catch *"stitches out"* did not match *"when do my stitches come out."* Every
+   new specialist and phrasing meant another hand-patch.
+2. **v2: LLM-primary classification.** One call returns the route label *and* which specialists
+   apply, parsed into the same `scores` dict the orchestrator already consumed — so the
+   orchestrator needed **zero changes**. Robust to phrasing. **Trade-off accepted explicitly:**
+   routing is no longer free, and costs latency on every question.
+3. **v3: put the keywords back — underneath.** When the classifier hedges (confidence < 0.50),
+   answers CLARIFY, or is unavailable, a deterministic keyword net catches the question. **The regex
+   went from being the router to being the floor.**
+
+**And one regex never moved:** `RED_FLAG` is checked **before** the classifier and always wins, at
+confidence 0.97. A safety gate has to behave identically every run, and a model cannot promise that.
+
+**Visual:** three stacked bands — `RED_FLAG regex` (top, "always first, always wins"), `LLM
+classifier` (middle, "the router"), `keyword net` (bottom, "the floor").
+
+---
+
+### Slide 8 ⭐ — This is not one LLM call: the agentic loop
+**Speaker:** 2 · **Time:** 1:20 — **the slide Ben asked for; the mechanism slide**
+
+> **Deck agent:** build this as a numbered horizontal or vertical pipeline, each step a labeled box.
+> The point is *countable steps*. A single "LLM" box on the left with an arrow to an answer, versus
+> this pipeline on the right, is the strongest possible visual for the whole talk.
+
+**One question. Six distinct decisions, none of them made by the same call:**
+
+| # | Step | What decides | Model |
+|---|---|---|---|
+| 1 | **Resolve** the follow-up against ≤6 prior turns | LLM | 120b |
+| 2 | **Classify** the route — RED_FLAG regex checked first | regex, then LLM | 20b |
+| 3 | **Plan** which specialists run, and in what order | LLM | 20b |
+| 4 | **Consult** each specialist in turn — *retrieve → optionally call tools → draft* | LLM + tools | 120b |
+| 5 | **Extract** binding constraints from each draft, feed them forward | LLM | 120b |
+| 6 | **Back-channel** — one specialist asks another a direct question | LLM | 120b |
+| 7 | **Synthesize**, then **verify** the answer against every constraint | LLM | 120b + 20b |
+
+**Real observed output — put this on the slide verbatim, in monospace:**
+
+```
+route_question:     TEAM (0.97, llm) - All specialists needed for safe
+                    return to lifting and nutrition support.
+plan_consultation:  surgeon -> pt -> nutrition (llm) - The surgeon must
+                    first establish post-operative restrictions and safe
+                    weight-bearing limits. The physical therapist then
+                    builds on those limits...
+consult_surgeon:    6 source(s), tools=['weeks_post_op_phase']
+consult_pt:         5 source(s), 1 upstream draft(s) as peer_context
+consult_nutrition:  4 source(s), 2 upstream draft(s) as peer_context,
+                    tools=['protein_target']
+peer_consult:       trainer -> surgeon: "What are the post-operative
+                    weight-bearing status and ROM restrictions?"
+synthesize:         merged 3 drafts
+compliance_check:   checked, compliant
+```
+
+**Speaker note:** "Read the second line. The planner didn't just pick three specialists — it
+*explained its ordering*, and that reasoning is in the trace. Then look at line four: the surgeon
+called a tool. That's the difference between an agent and a prompt. And the last line is the system
+checking its own homework." Then: **"A general assistant does step 4, once, with no corpus. We do
+seven steps and write down all of them."**
+
+---
+
+### Slide 9 ⭐ — Two mechanisms: binding constraints, and tools
+**Speaker:** 2 · **Time:** 1:30 — **the architectural payoff slide**
+
+> **DECK AGENT — this slide is the visual answer to slide 2.** Somewhere on it, redraw slide 2's
+> four figures with the **lateral arrows now solid** and in the specialist colors: downstream arrows
+> for the constraint chain, plus one arrow pointing *back* upstream for the peer consult. Same
+> motif, repaired. That before/after is the single clearest image in the deck.
+
+Split the slide in two halves.
+
+**LEFT — Constraint handoff (why it's a *team*, not four chatbots in a trench coat)**
+
+- Each specialist's draft is injected into the next specialist's prompt as **binding restrictions**,
+  not suggestions — *"treat any restrictions in their draft as binding; build on them, never
+  contradict them."*
+- A separate LLM call extracts a **structured constraint list** — `{body_part, restriction,
+  duration}` — so the downstream agent doesn't parse restrictions out of prose and hope. Degrades to
+  `[]` on failure; the raw draft still carries the restriction in prose either way.
+- **The back-channel closes the loop** ✱ — the chain used to be strictly one-directional. Now, if a
+  specialist hits the edge of its scope, it can put a direct question to another specialist and the
+  reply joins the synthesis evidence. Capped at one round-trip so the DAG still cannot run away.
+
+**RIGHT — Tools: agents that compute, re-query, and look things up** ✱
+
+| Tool | Why |
+|---|---|
+| **Calculators** — protein target, training load, 1RM, post-op phase, unit conversion | The numbers this system hands patients are arithmetic, and **arithmetic is where LLMs quietly slip**. The tool multiplies; the corpus still decides the clinical guideline. |
+| **`search_my_corpus`** — re-query own collection with better terms | A weak first retrieval used to mean a weak answer. Now the agent gets a second attempt. **Siloing survives: the collection name is injected by the agent, never read from model-supplied arguments** — asserted by test. |
+| **`search_pubmed`** — gated | Offered **only when the agent's own corpus returned nothing**, enforced in code, not requested in a prompt. Results cite `[research: PMID …]`, never `[source: filename]`, so a single abstract can never be mistaken for vetted guidance — and can never override a restriction. |
+
+Loop capped at **2 tool rounds**. Unbounded tool loops are the standard way an agent burns a metered
+budget, and we have hit the daily cap more than once.
+
+**Speaker note — open with the callback to slide 2:** *"Remember the four experts who don't talk to
+each other? These are those arrows, working."* Then the tools half. Close on the gate: "It would
+have been easy to write 'only use this if your corpus fails' in the prompt and call it a policy. We
+don't offer the tool schema at all unless retrieval came back empty. **A capability the model cannot
+see is a policy it cannot violate.**"
+
+---
+
+### Slide 10 — Safety as an eight-layer stack
+**Speaker:** 2 · **Time:** 0:55
+
+| # | Layer | Mechanism |
+|---|---|---|
+| 1 | Emergency detection | Deterministic red-flag regex, checked **before any AI involvement** — canned urgent-care response |
+| 2 | Expertise silos | Each agent retrieves only from its own collection |
+| 3 | Grounding rule | "Answer ONLY from provided context," baked into the shared base class — a persona cannot omit it |
+| 4 | Persona deference | PT never diagnoses · trainer never assesses pain · nutritionist never programs |
+| 5 | Tool gating ✱ | PubMed withheld in code unless the corpus missed; corpus tool cannot cross silos |
+| 6 | Constraint propagation | Every upstream draft binds everything below it, as structured constraints |
+| 7 | **Compliance check** ✱ | The synthesized answer is re-verified against every extracted restriction; violation appends a visible warning |
+| 8 | Fixed disclaimer + graceful failure | Disclaimer appended **by Python**. Agents never raise; errors become routing conditions |
+
+**The three sentences that matter:**
+
+- Layers 1 and 8 are **Python constants**. An LLM cannot forget them, rephrase them, or be talked
+  out of them.
+- Layer 7 **distinguishes "checked and clean" from "could not check"** (`checked: False`). A broken
+  checker never reports a clean bill of health it did not establish. *(We learned this the hard way —
+  see slide 13.)*
+- Graceful failure is not theoretical: **verified live during this revision.** With the PT knowledge
+  base missing and the Groq account rate-limited mid-run, the system returned a polite fallback
+  naming both causes and the exact rebuild command — no stack trace, no invented answer.
+
+---
+
+## ACT III — Differentiation, evidence, economics · Speaker 3 · 4:30
+
+### Slide 11 — Beyond text RAG
+**Speaker:** 3 · **Time:** 0:45
+
+Four capabilities layered on the core system. One line each — do not deep-dive.
+
+- **Patient photo upload → VLM** ✱ — a user can attach a photo (swelling, an incision, exercise
+  form). Google Gemini Flash converts it to a factual text description, which is prepended to the
+  question *before* it enters the pipeline. **Why a description rather than pixels to four agents:**
+  every specialist answer is grounded in its own retrieved corpus; feeding raw images to the agents
+  would bypass that entirely. One conversion up front keeps routing, grounding, and synthesis intact.
+- **CLIP multimodal search** ✱ — `clip-ViT-B-32` embeds **279 exercise diagrams and extracted PDF
+  figures** into the same space as the question text, so a rehab question surfaces the *picture* of
+  the movement. **Now real image embeddings with a hybrid filename bonus** — it was filename
+  matching before. Wired into the app.
+- **GraphRAG property graph** — clinical entities (`Procedure`, `Nutrient`, `Exercise`,
+  `Contraindication`) joined by typed edges, enabling multi-hop reasoning vector similarity cannot
+  reach. **⚠️ Check 0.1(b) before claiming Kùzu — it currently falls back to in-memory data.**
+- **Security guardrails** — prompt-injection / jailbreak / SQL-injection scanning and PII redaction,
+  with a red-team suite. **Currently on the CLI path, not the Streamlit app.**
+
+**Speaker note:** Volunteer the two wiring caveats rather than waiting to be caught. In this room
+that buys more credibility than it costs.
+
+---
+
+### Slide 12 ⭐ — Why not just ask ChatGPT or Claude?
+**Speaker:** 3 · **Time:** 1:15 — **the most important slide in the deck**
+
+| | General assistant | Recovery Team |
+|---|---|---|
+| **Knowledge** | Parametric memory. You cannot audit what it drew on. | Every claim retrieved from a named, versioned, license-logged document. File-level citations. |
+| **Not knowing** | Almost never says "I don't have material on that." | Structural refusal — and if the corpus misses, it says so *and then* is allowed one gated PubMed lookup, labeled as research. |
+| **Roles** | Personas are **stylistic**. One model, one knowledge pool, four voices. | Boundaries are **physical**. The trainer *cannot see* surgeon documents. |
+| **Steps** ✱ | One call. One shot. | **7 distinct stages**, each logged: resolve → route → plan → consult(+tools) → extract → back-channel → synthesize → verify. |
+| **Arithmetic** ✱ | Computed in-weights, silently, sometimes wrong. | Deterministic calculator tools. The protein number came from a function, not a guess. |
+| **Constraints** | No guarantee training advice was generated *subject to* the clinical restriction. | Structured binding constraints passed forward + a compliance check on the finished answer. |
+| **Safety** | Model behavior: usually good, statistically variable, jailbreakable. | Deterministic pre-model short-circuit. Identical every run, zero token cost. |
+| **Auditability** | Black box. | Full execution trace: who ran, in what order, **why that order**, from which files, using which tools. |
+| **Corpus control** | Theirs, opaque, changes under you. | Ours. Swap `data/` and you have a different vertical. |
+
+**The closing line — say it out loud, do not paraphrase:**
+
+> "GPT-5 almost certainly *knows* more orthopedics than our 90 documents. That is not the claim. The
+> claim is that it cannot show you where an answer came from, cannot be prevented from answering
+> outside its lane, cannot prove the trainer heard the surgeon, and cannot tell you which of its
+> steps produced the number it just gave your patient — because it only has one step. We can answer
+> all four, and those are exactly the properties you need before anyone lets a system like this near
+> a patient."
+
+**Speaker note:** Concede the knowledge-breadth point first and fast; conceding it is what makes the
+rest land as engineering rather than marketing. Then point forward: "the next four minutes of live
+demo are the proof of rows 2, 4, 5, and 8."
+
+---
+
+### Slide 13 — Evidence: what we measured, including what we got wrong
+**Speaker:** 3 · **Time:** 1:05
+
+- **Routing accuracy: 15/15** on the frozen 15-question battery, run live 2026-07-18. **⚠️ That run
+  predates both the model migration and the planner.** Re-run before presenting or say "last
+  verified in July, on the previous model." *(See 0.1(a) — budget the tokens.)*
+- **Test suite: 60 test functions across 9 modules** ✱ — routing, planner bounds, tool dispatch,
+  compliance, conversation memory, GraphRAG, red-team, unit economics, and full E2E. Most run
+  **offline with no API key**.
+- **LLM-as-a-judge evaluation** — scores Clinical Safety (1–5), Constraint Adherence (1–5), and
+  Brevity (1–5) on adversarial high-risk scenarios: premature 225 lb squatting, skipping prescribed
+  PT, forcing shoulder ROM, 500 cal/day diets.
+- **⭐ The bug worth presenting:** our safety evaluation **returned a hardcoded 5/5 PASS whenever the
+  judge call threw an exception.** A crashed evaluation was scoring as a perfect safety result. We
+  found it in an audit and fixed it to report score 0 / `verdict: ERROR`. **The old "100% pass on
+  high-risk scenarios" number was therefore not trustworthy, and we are not presenting it.** The
+  same lesson produced layer 7 on slide 10 — the compliance check reports `checked: False` rather
+  than claiming a clean result it never established.
+
+**Speaker note:** The bug is the best 20 seconds in this act — *volunteer it*. "The most dangerous
+failure mode in an eval harness isn't a low score, it's a fake high one. Ours failed open, and it
+failed open on the safety metric specifically. That's the kind of thing you only find by reading
+the exception handler."
+
+---
+
+### Slide 14 ⭐ — Unit economics · **PLACEHOLDER — feature not yet implemented**
+**Speaker:** 3 · **Time:** 1:05
+
+> **⚠️ DECK AGENT: build this as a deliberate, well-designed placeholder.** Lay out the four regions
+> with real labels and a clear visual grid; leave values as `— TBD —`. **Do not invent numbers, and
+> do not carry forward the old $0.59/$0.79 figures — those were Llama-3.3-70B pricing and we no
+> longer run that model** (see 0.2).
+
+1. **Cost per query, by route.** RED_FLAG costs **$0.00** — never calls a model. A single-specialist
+   route is ~3 calls. A four-specialist TEAM route is **12–18 sequential Groq calls** ✱. That spread
+   is the interesting number.
+   → *Blank: small table, one row per route.*
+2. **Where the money goes.** Groq inference is metered; embeddings, vector storage, graph, and
+   persistence are **$0.00** — all local. The split is the architectural story.
+   → *Blank: two-segment bar, metered vs. free.*
+3. **The real constraint we hit** ✱ — not dollars, **the free tier's 200,000 token/day cap**, which
+   we exhausted during development. At 12–18 calls per TEAM question that is roughly a dozen full
+   consults per day. *This is a more honest and more interesting cost story than a per-query dollar
+   figure, and it is verified.*
+   → *A real number: `Limit 200000, Used 198872`.*
+4. **Vertical ROI.** Cost per AI consult vs. human clinical consultation ($150–$350/hr across the
+   four specialties).
+   → *Blank: one large comparison figure.*
+
+**Presenter script (~65s, usable today with the slide blank):**
+
+> "What this costs to run is the whole business question for a vertical AI product, and it's the
+> piece we're still building. Structurally: our cost is entirely LLM inference — embeddings, vector
+> store, graph, and persistence are local and free. So cost scales with *how many specialists a
+> question wakes up, and how many tools they call*. A red-flag question costs literally nothing. A
+> single specialist is about three calls. A full four-specialist consult is twelve to eighteen.
+>
+> Here's the honest state of the estimator in the app: it prices the visible question and the final
+> answer at about four characters per token. It doesn't see the router, the planner, the specialist
+> drafts, the tool calls, the constraint extractions, or the compliance check. It understates real
+> cost by roughly an order of magnitude, and I'd rather tell you that than quote it.
+>
+> And the constraint that actually bit us wasn't dollars — it was Groq's free tier daily token cap.
+> We hit it. Two hundred thousand tokens a day is about a dozen full team consults, which is a real
+> product constraint and exactly the kind of thing you only learn by running the thing."
+
+---
+
+### Slide 15 — Limitations, roadmap, and demo handoff
+**Speaker:** 3 → demo driver · **Time:** 0:20
+
+**What we know is missing** — all real, none embarrassing:
+
+- **⭐ We traded a safety guarantee for flexibility, knowingly.** ✱ Ordering used to be hardcoded
+  most-restrictive-first, which *guaranteed by construction* that constraints reached everyone
+  downstream. A small LM now picks the order. We contain it three ways — RED_FLAG still pre-empts
+  planning, ordering inversions are detected in Python and logged, and the compliance check
+  re-verifies the answer regardless of order — but **none of them fully restores the invariant.**
+- **Naive retrieval.** Top-k cosine only. No BM25 hybrid, no reranking, no metadata filtering.
+- **Corpus breadth ≠ clinical depth.** Public-domain *patient-education* material, not clinical
+  protocols. Exactly why the disclaimer exists.
+- **Health data in plaintext SQLite.** Fine for a local single-user demo; needs real work before any
+  hosted deployment.
+- **Guardrails and GraphRAG are partly wired** — CLI-only, and Kùzu falls back to in-memory.
+
+**Next:** per-call cost instrumentation · guardrails on the app path · hybrid retrieval · restoring
+an ordering invariant that survives a learned planner.
+
+**Then hand off — four things to watch in the demo:**
+
+1. **The route chip and badges** — which specialists the system chose
+2. **The trace** — the plan, its stated reasoning, and the tool calls
+3. **The red-flag question** — answered instantly, with no model call at all
+4. **The follow-up** — a question that only makes sense in context, resolved
+
+> **↑↑↑ END OF SLIDESHOW PLAN ↑↑↑**
+
+---
+
+# PART 2 — LIVE DEMO SCRIPT
+
+**Driver:** Speaker 1 · **Target:** 6:00 · **Cap:** 7:00 · **Mode:** live Streamlit app
+
+## Pre-flight — do this before class, not on the clock
+
+- [ ] **⚠️ Check remaining Groq token budget at console.groq.com.** A TEAM question is 12–18 calls
+      and the free tier caps at 200k tokens/day. **Do not burn the budget rehearsing that morning.**
+- [ ] `.venv` activated; `GROQ_API_KEY` and `GOOGLE_API_KEY` present in `.env`
+- [ ] **All four collections built and verified non-empty** — `pt_docs` · `trainer_docs` ·
+      `surgeon_docs` · `nutrition_kb`. This has silently broken once; check, don't assume.
+- [ ] **Warm-up run.** One throwaway question, fully completed — the first question of a process
+      pays for loading MiniLM and CLIP. The class must not watch that.
+- [ ] Sidebar toggle **"Show routing debug trace" = ON** — the trace is half the point
+- [ ] Have one photo ready on the desktop if you plan to demo the upload beat
+- [ ] Browser zoom 125–150%; pick light or dark and stick with it
+- [ ] Second terminal at the repo root for the CLI fallback
+- [ ] Phone hotspot ready; notifications off; second monitor mirrored not extended
+
+## Timing reality
+
+A **TEAM** question fires **12–18 sequential Groq calls**. Expect **30–60 seconds of spinner** on
+beat 2 — *longer than the old plan assumed.* That is a meaningful fraction of your demo, spent
+watching a spinner.
+
+**Turn the latency into content.** Type, press Enter, and *keep talking*. The beat-2 narration is
+written to be delivered over the wait. Never stand in silence, and never apologize for it.
+
+---
+
+## Beat 1 — Orientation · 0:00–0:25
+
+Show the app without typing. One chat box. Sidebar: knowledge-base rebuild buttons, debug toggle,
+unit economics.
+
+> **Say:** "Everything on the architecture slide is behind this one text box. Four agents, four
+> corpora, a router, a planner, and an orchestrator — the user sees a chat window."
+
+---
+
+## Beat 2 — The flagship: planning, tools, constraint handoff · 0:25–2:30
+
+**Type exactly:**
+
+```
+I'm 8 weeks post-meniscus surgery - how do I get back into lifting safely, and how much protein should I eat?
+```
+
+**Press Enter, then narrate over the spinner** (~40s of material):
+
+> "Right now: the router is classifying this, and that's a small-model call. It comes back TEAM.
+> Then a *second* model call — the planner — decides which specialists to wake up and what order to
+> run them in, and it writes down its reasoning. The surgeon goes first because post-op restrictions
+> have to bound everything downstream. Its draft gets turned into a structured constraint list, and
+> that list is prepended to the next specialist's prompt as *binding restrictions* — so the PT is
+> writing under the surgeon's constraints, not alongside them. The nutritionist will probably call a
+> calculator tool for the protein number rather than doing that arithmetic in its head. Then a
+> synthesizer merges the drafts, and a final check re-reads the answer against every restriction
+> that came out of the chain."
+
+**When it lands, point at these in order — rehearse this sequence:**
+
+1. **Route chip** — `TEAM` with its confidence
+2. **Badges** — the roster the *planner* chose
+3. **Routing trace (debug)** ⭐ — **spend the most time here.** Read the `plan_consultation` line
+   aloud, including its reasoning. Then find `tools=[...]` on a consult line and say: *"that's the
+   agent calling a function, not guessing."*
+4. **Binding restrictions expander** — the structured constraints as a checklist
+5. **Sources expander** — per-agent file lists. Separate specialists, separate document sets.
+
+> **Say:** "That trace is the difference between an agent system and a prompt. I can *prove* the
+> trainer read the surgeon, and I can show you which of these numbers came from a calculator."
+
+---
+
+## Beat 3 — Multi-turn: the follow-up ✱ · 2:30–3:05
+
+**New this cycle — and it replaces a limitation the old deck had to apologize for.**
+
+Immediately after beat 2, type only:
+
+```
+what about swimming?
+```
+
+That question is meaningless standalone. Watch it resolve against the 8-weeks-post-meniscus context
+and route correctly.
+
+> **Say:** "That question has no meaning on its own. Before anything else runs, a call resolves it
+> against the last few turns into a standalone question that carries the surgical context forward.
+> We deliberately do that *once, up front*, rather than injecting chat history into every
+> specialist's prompt — because chat history isn't retrieval evidence, and mixing it into their
+> context would blur the grounding rule that's the whole anti-hallucination story."
+
+*(Bonus if it fires: swimming is thin in all four corpora, so this may double as the honest-ignorance
+beat — the system saying it doesn't have material rather than inventing a protocol.)*
+
+---
+
+## Beat 4 — Deterministic safety · 3:05–3:40
+
+**Type exactly:**
+
+```
+My calf is swollen, hot, and I have sharp pain when I stand.
+```
+
+It returns **instantly**. Let the speed make the point before explaining it.
+
+- Route chip: `RED_FLAG`, ~0.97 · **no badges** · trace is **two lines** · no retrieval, no LLM,
+  no token cost
+
+> **Say:** "That's a possible DVT. It never reached a language model. A regex caught it and a fixed
+> Python string answered it. Nothing on that path varies between runs, and nothing in a prompt can
+> talk it out of firing — which is exactly what you want from the one branch where being wrong is
+> dangerous."
+
+---
+
+## Beat 5 — Honest ignorance · 3:40–4:15
+
+*Skip if beat 3's swimming question already produced a refusal.*
+
+**Reliable fallback — second terminal, single agent, no router:**
+
+```
+python -m src.agents.gym_trainer "How much protein should I eat to build muscle?"
+```
+
+Verified behavior, and worth showing regardless: it isolates the mechanism — the *trainer
+specifically*, refusing to leave its lane, with no router or orchestrator involved.
+
+> ⚠️ **Trap — do not use the protein question in the app.** It *used* to produce the trainer's
+> famous refusal, but we shipped a nutritionist since; the router now correctly sends it to 🥗 and it
+> gets a real answer. That's an upgrade, not a bug, but it kills the beat.
+
+> **Say:** "This is behavior a general assistant essentially never gives you. The refusal isn't
+> politeness — it's structural. There's nothing about nutrition in that collection, and the base
+> class prompt forbids answering from anything else."
+
+---
+
+## Beat 6 — Optional: the photo upload ✱ · 4:15–4:45
+
+**Cut this first if running long.** Click the paperclip in the chat input, attach a photo, and ask
+about it.
+
+> **Say:** "Our specialists run on a text-only model. So the image goes to a vision model once, up
+> front, becomes a factual description, and that description enters the pipeline as text — which
+> means routing, grounding, and citation all work exactly as they did. We didn't build a second
+> architecture for images."
+
+---
+
+## Beat 7 — Unit economics · 4:45–5:40 · **PLACEHOLDER**
+
+1. Point at the sidebar's **unit economics** expander.
+2. Deliver the honesty line — this beat earns its slot on candor, not on numbers.
+
+> **Say:** "This is what we're still building. What you're seeing is an estimator — it prices the
+> question and the final answer at about four characters per token. It does *not* see the router,
+> the planner, the specialist drafts, the tool calls, the constraint extractions, or the compliance
+> check. That answer you just watched was twelve to eighteen Groq calls; this number reflects
+> roughly one of them. What we're building is real per-call token accounting off the Groq response
+> metadata, attributed per node — so we can say what each *architectural decision* costs, not just
+> what a query costs. And the honest headline is that the binding constraint wasn't money at all:
+> it was the free tier's two-hundred-thousand-token daily cap, which we hit."
+
+---
+
+## Beat 8 — Close · 5:40–6:00
+
+> **Say:** "Four agents, four siloed corpora, a planner that explains itself, tools instead of
+> mental arithmetic, a safety branch that never touches a model, and a full audit trail for every
+> answer. You can ask ChatGPT about your meniscus. You can't ask it to prove the trainer heard the
+> surgeon."
+
+---
+
+## Contingency
+
+| If… | Then… |
+|---|---|
+| **Groq 429s (rate limit)** ⚠️ | **The likeliest failure now.** The fallback names the cause and stays graceful — you can honestly say "that's layer 8, and you're watching it work." Then pivot to beat 4, which needs no API. Check the budget beforehand so this doesn't happen. |
+| Groq is merely slow | Keep narrating. If it fails outright: `python -m src.orchestrator "…"` in terminal two. |
+| Network dies completely | Beat 4 (red flag) still works — it never calls out. Fully offline. |
+| A knowledge base is missing | The fallback names the exact rebuild command. Embarrassing but *demonstrates layer 8*. Rebuild is local-only, no API needed. |
+| Running long | Cut beat 6 (photo) first, then beat 5. **Do not cut beat 3** — multi-turn is new and it retires an old limitation. |
+| Running short | Ask a `NUTRITION_ONLY` question for single-specialist contrast with TEAM — doubles as cost-contrast setup for beat 7. |
+| Asked to see the guardrails | CLI path only: `python -m src.cli "…"`, or defer to Q&A. |
+
+---
+
+# PART 3 — Q&A PREP
+
+**⭐ "How is this different from just calling an LLM with a good prompt?"** *(the question the deck is built to answer)*
+Three concrete differences, not one. **Steps:** a question passes through seven distinct stages —
+follow-up resolution, routing, planning, consultation, constraint extraction, a peer back-channel,
+and synthesis-plus-verification — each a separate decision, each logged. **Tools:** the specialists
+call deterministic calculators for anything a patient might act on, can re-query their own corpus
+when retrieval is thin, and get a gated PubMed lookup only on a genuine miss. **Boundaries:** each
+agent physically cannot retrieve outside its own collection. A single call gives you one shot, no
+corpus, no record, and arithmetic done in-weights. If you don't need provenance or enforced scope,
+one model with a good prompt is cheaper and faster — that's a real answer, not a dodge.
+
+**"Isn't 90 documents nothing compared to what GPT-5 knows?"**
+Correct, and not the claim. We trade knowledge breadth for provenance, enforced scope boundaries,
+deterministic safety, and auditability. Our corpus is public-domain *patient-education* material,
+not clinical protocols — exactly why the disclaimer exists.
+
+**"Does it remember the conversation?"** ✱ *(answer changed — the old deck said no)*
+Yes, as of this cycle. A follow-up is resolved against up to six prior turns into a standalone
+question before anything else runs. We do it once up front rather than injecting history into every
+specialist's prompt, because chat history isn't retrieval evidence and mixing it in would blur the
+grounding rule.
+
+**⭐ "You said the order is fixed for safety — but a model picks it?"** ✱ *(the sharpest available question)*
+Right, and we changed that deliberately and gave something up. Fixed ordering guaranteed *by
+construction* that a restrictive specialist's constraints reached everyone downstream. A small LM
+now picks roster and order, which is more flexible and strictly less guaranteed. Three
+compensations: RED_FLAG still runs on regex before the planner is ever called; ordering inversions
+are detected in Python and written to the trace; and a compliance check re-verifies the finished
+answer against every extracted constraint regardless of what order ran. That recovers after the fact
+what we used to have up front — it is not the same thing, and we don't claim it is.
+
+**"How good is the routing, really?"**
+15/15 on our frozen battery, run live in July. Be precise about the caveat: **that run predates both
+the model migration and the planner.** Two gaps found in July are fixed — a vague "what's the best
+gym?" that resolved to `TRAINER_ONLY` instead of asking for clarification, and a question with
+explicit surgeon language that under-chained. Both fixes were prompt-level: few-shot examples, plus
+an explicit rule that a *past* surgical clearance is still an *ongoing* constraint. That second one
+is the more interesting failure — the model treated "my surgeon already cleared me" as a resolved
+past event rather than a live restriction.
+
+**"Why is the safety check a regex when everything else is an LLM?"**
+Deliberate, and we went both directions. We *replaced* a regex router with an LLM classifier because
+hand-tuned cue lists were brittle — a pattern for "stitches out" didn't match "when do my stitches
+come out." But a safety gate must behave identically every time, and an LLM can't promise that. The
+regex went from being *the router* to being *the floor*, and RED_FLAG never moved off it.
+
+**"What stops a specialist from using the corpus tool to read another specialist's documents?"** ✱
+The collection name is injected by the agent object, never read from the model's arguments. There's
+a test that calls the dispatcher with `collection_name: "surgeon_docs"` as a trainer and asserts the
+trainer's own collection is what actually gets searched.
+
+**"Isn't PubMed access a hole in your grounding story?"** ✱
+It would be if it were always available. The schema isn't offered to the model at all unless that
+agent's own retrieval returned nothing — enforced in code, not requested in a prompt. A capability
+the model can't see is a policy it can't violate. Results are cited `[research: PMID …]`, never
+`[source: filename]`, and can't override a restriction. It's metadata-only, which also sidesteps the
+full-text licensing problem.
+
+**"What's your retrieval strategy?"**
+Naive top-k cosine, k=6, 384-dim MiniLM, per-agent collection. No BM25 hybrid, no reranking, no
+metadata filtering. Fine at ~1,900 chunks; it's on the list.
+
+**"Why not use an off-the-shelf guardrail library?"** ✱
+We evaluated `llm-guard` and rejected it on dependency grounds: it required downgrading
+`transformers` 5.14.1 → 4.51.3, which breaks `sentence-transformers` — and that would take out all
+four agents' retrieval *and* CLIP image search. The guardrail would have cost us the retrieval layer.
+
+**"Is it secure? What about prompt injection?"**
+A scanner module for prompt injection, jailbreaks, SQL injection, and PII redaction, with a red-team
+suite. Be accurate: currently on the **CLI** path (`src/cli.py`), not the Streamlit app.
+
+**"You're storing health information."**
+Plaintext SQLite on the local machine, never sent anywhere. Fine for a single-user local demo; needs
+real work before hosted deployment. It's in our limitations.
+
+**"What happens if a knowledge base is missing?"**
+Verified live: polite fallback naming the cause plus the exact rebuild command, no stack trace.
+Agents capture errors into a return field instead of raising, so the graph treats a broken agent as
+a routing condition. On a TEAM route, one broken knowledge base degrades the answer instead of
+killing it.
+
+**"Why not fine-tune?"**
+Corpus changes shouldn't require retraining, we need file-level citation for every claim, and the
+whole thing runs on a free API tier plus local embeddings. Swap `data/` and you have a different
+vertical.
+
+**"What does a query actually cost?"** ⚠️ *the likely slide-14 follow-up*
+Structurally, cost is entirely Groq inference — embeddings, vector store, graph, and persistence are
+local and free. It scales with how many specialists a question wakes up and how many tools they
+call: zero for a red flag, ~3 calls for a single specialist, 12–18 for a full team consult. The app's
+estimator prices only the visible question and answer, so it understates substantially — we'd rather
+say that than quote it. The constraint that actually bit us was the free tier's 200k token/day cap,
+which we exhausted.
+
+**"Isn't the multi-agent overhead just latency and cost you invented for yourselves?"**
+Fair, and yes — 12–18 sequential calls and 30–60 seconds. We buy three specific things: enforced
+scope boundaries, a provable constraint handoff, and a per-node audit trail. If you don't need
+those, one model with a good prompt is cheaper and faster. The moment you need to prove *why* an
+answer was safe, you need the structure.
+
+---
+
+# PART 4 — FACT SHEET
+
+Verified against the repo on **2026-08-07 (evening revision)** — git history, `src/`, `app.py`, live
+`chroma_db/`, and a live orchestrator run. ✱ = new or corrected in this revision.
+
+| Fact | Value |
+|---|---|
+| Specialist agents | 4 — 🦴 surgeon · 🩺 PT · 🏋️ trainer · 🥗 nutritionist |
+| Corpus | **90 documents** ✱ across 4 siloed collections — PT 40 · trainer 22 · surgeon 18 · nutrition 10 |
+| Chunks | **1,886** ✱ — **PT 1,050** · trainer 536 · nutrition 179 · surgeon 121 |
+| Visual assets (CLIP) | **279** ✱ — PT 112 · trainer 156 · surgeon 9 · nutrition 2 |
+| Chunking / embeddings | ~1,000 chars, 150 overlap · `all-MiniLM-L6-v2`, 384-dim, local, CPU, free |
+| Retrieval | top-k cosine, k=6, per-agent collection |
+| **LLM — specialists, synthesis** | **Groq `openai/gpt-oss-120b`**, temp 0.2 ✱ |
+| **LLM — router, planner, compliance** | **Groq `openai/gpt-oss-20b`**, `reasoning_effort="low"` ✱ |
+| **Vision** | **Google `gemini-flash-latest`** — the only non-Groq call ✱ |
+| Retired model | `llama-3.3-70b-versatile` — Groq retirement **2026-08-16**; migrated 2026-08-07 ✱ |
+| **Groq calls, 4-specialist TEAM** | **12–18** ✱ — was 7–9 before the planner/tools |
+| Groq calls, single specialist | ~3 (router + planner + consult) ✱ |
+| Groq calls, RED_FLAG | **0** |
+| **Free-tier daily cap** | **200,000 tokens/day — verified by hitting it** ✱ |
+| Token pricing | **⚠️ UNVERIFIED for gpt-oss — the old $0.59/$0.79 was Llama-3.3-70B. Look it up.** ✱ |
+| Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
+| PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
+| Plan bounds ✱ | `MAX_PLAN_LENGTH = 4`, de-duplicated, sanitized against hallucinated agent names |
+| Peer back-channel ✱ | `MAX_CONSULT_ROUNDS = 1` — one round-trip, straight-through node, DAG preserved |
+| Conversation memory ✱ | ≤6 prior turns, resolved to a standalone question **before** routing |
+| Constraint extraction | runs after surgeon, PT, nutritionist — **not** the trainer *(wasted call fixed this revision)* ✱ |
+| Compliance check ✱ | Re-verifies the answer vs. every constraint; distinguishes `checked: False` from clean |
+| TEAM chain order | **LM-planned** ✱ (was hardcoded most-restrictive-first); inversions detected and logged |
+| Red-flag confidence | 0.97, regex, pre-model |
+| **Test suite** | **60 test functions across 9 modules** ✱ (was 44); most run offline with no API key |
+| **Routing battery** | **15/15**, run live 2026-07-18 — ⚠️ **predates the model migration and the planner** ✱ |
+| High-risk stress tests | ⚠️ **Old "100% pass" is not trustworthy** — the judge scored 5/5 PASS on exception. Fixed to score 0 / `ERROR`. Re-run before quoting. ✱ |
+| GraphRAG | ⚠️ **Kùzu not installed on this machine — falls back to in-memory data** ✱ |
+| Guardrails | Wired into `src/cli.py` only, not `app.py` |
+| `llm-guard` | Evaluated and **rejected** — would downgrade `transformers` and break retrieval + CLIP ✱ |
+| Persistence | SQLAlchemy/SQLite, WAL + foreign keys, one row per turn |
+| Licensing | US-gov public domain; NHS under OGL v3.0; provenance in `data/SOURCES.md` |
+
+---
+
+## Open items before we present
+
+- [ ] **⚠️ Check the Groq token budget** and decide whether to upgrade tiers for the presentation
+      window. At 12–18 calls per TEAM question, the free tier is ~a dozen consults/day. **Highest
+      priority — this is the one that can kill the live demo.**
+- [x] ~~Verify all four Chroma collections are non-empty~~ — done: PT 1,050 · trainer 536 ·
+      nutrition 179 · surgeon 121 = **1,886**. Still re-check the morning of; `pt_docs` vanished once.
+- [ ] **`pip install kuzu`** or correct slide 11's GraphRAG claim.
+- [ ] **Look up current gpt-oss token pricing** — the deck must not carry the Llama-3.3 numbers.
+- [ ] **Re-run the 15-question routing battery** on the new model + planner, or present it as
+      "verified in July on the previous model." Budget the tokens.
+- [ ] **Re-run the high-risk scenario suite** now that the judge no longer fails open — then decide
+      whether the number is quotable.
+- [x] ~~Regenerate the architecture diagram~~ — done (`1f90e94`). Still needs cropping or splitting
+      before it goes on a projected slide; see 0.6.
+- [ ] Decide the unit-economics call: ship real per-call accounting, or present slide 14 as the
+      honest placeholder scripted above. Either is defensible; deciding late is not.
+- [ ] Assign Speaker 1 / 2 / 3 to Evan, Ben, James, and confirm the demo driver.
+- [ ] **One full timed rehearsal — the day before, not the morning of** (token budget).
+- [ ] Merge the stale-docs fix so `Capabilities_Overview.md` and `PROJECT_PLAN.md` don't contradict
+      the deck if a TA reads the repo.

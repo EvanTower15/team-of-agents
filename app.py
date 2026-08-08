@@ -221,6 +221,9 @@ with st.sidebar:
         "Therapist, Gym Trainer, and Sports Nutritionist -- coordinated by an LLM "
         "router and LangGraph orchestrator. Ask one question; the right "
         "specialist(s) answer."
+        "Four specialist RAG agents -- Orthopedic Surgeon, Physical Therapist, "
+        "Gym Trainer, and Nutritionist. Ask one question; a planner picks who "
+        "answers and in what order."
     )
 
     st.divider()
@@ -294,12 +297,7 @@ with st.sidebar:
         try:
             from src.business.unit_economics import CostCalculator, BudgetOverrunGuard, VerticalStrategyMetrics
 
-            st.markdown("**Token pricing:** Groq `llama-3.3-70b-versatile`")
-            st.caption("Input: $0.59/1M tokens | Output: $0.79/1M tokens")
-            st.caption(
-                "Token counts are a length/4 heuristic (CostCalculator.estimate_tokens), "
-                "not real Groq usage metadata -- treat as an approximation."
-            )
+            st.caption("Groq `gpt-oss-120b` - costs are estimated, not metered.")
 
             # Real per-exchange cost computed from the actual chat history in
             # this session, not a hardcoded placeholder number. Pair each user
@@ -320,9 +318,7 @@ with st.sidebar:
                     )
                     st.caption(f"- vs. human consult equivalent: ${roi['human_care_equivalent_usd']:.2f} ({roi['cost_reduction_multiplier']})")
                 if guard.accumulated_session_cost > guard.max_session_budget:
-                    st.warning(f"Session budget guard: exceeded ${guard.max_session_budget:.2f} estimated cost.")
-                else:
-                    st.caption(f"Budget guard: healthy (max ${guard.max_session_budget:.2f}/session, estimate-only -- does not block requests)")
+                    st.warning(f"Over the ${guard.max_session_budget:.2f} session estimate.")
             else:
                 st.caption("No exchanges yet this session.")
         except Exception as exc:
@@ -332,17 +328,6 @@ st.title("Recovery Team")
 st.caption(
     "Educational support only -- not a substitute for advice from a licensed clinician."
 )
-
-uploaded_image = st.file_uploader(
-    "Optional: attach a photo (swelling, an incision, exercise form)",
-    type=["jpg", "jpeg", "png", "webp"],
-    help=(
-        "The photo is described by a vision model and that description is added to "
-        "your question. Nothing is stored after the answer is generated."
-    ),
-)
-if uploaded_image is not None:
-    st.image(uploaded_image, width=220, caption="Attached to your next message")
 
 for msg in st.session_state.messages:
     avatar = "🙂" if msg["role"] == "user" else "🩹"
@@ -415,7 +400,21 @@ for msg in st.session_state.messages:
                 except Exception as exc:
                     st.caption(f"(visual search unavailable: {exc})")
 
-question = st.chat_input("Ask about an injury, rehab, or getting back into training...")
+_submission = st.chat_input(
+    "Ask about an injury, rehab, or getting back into training...",
+    accept_file=True,
+    file_type=["jpg", "jpeg", "png", "webp"],
+)
+
+# With accept_file=True, chat_input returns a dict-like object rather than a
+# plain string. Normalize both shapes so the rest of the flow is unchanged.
+question, uploaded_image = None, None
+if _submission:
+    question = getattr(_submission, "text", None) or ""
+    files = getattr(_submission, "files", None) or []
+    uploaded_image = files[0] if files else None
+    if not question and uploaded_image:
+        question = "What can you tell me about this photo?"
 
 if question:
     # If a photo is attached, describe it with a vision model first and fold
@@ -436,6 +435,14 @@ if question:
 
         effective_question = build_question_with_image(question, image_description)
 
+    # Snapshot the prior turns BEFORE appending this one -- otherwise the
+    # current question would appear in its own history. This is what lets a
+    # follow-up like "what about my knee?" resolve against earlier context
+    # instead of being answered from scratch.
+    prior_history = [
+        {"role": m["role"], "content": m["content"]} for m in st.session_state.messages
+    ]
+
     st.session_state.messages.append(
         {"role": "user", "content": question, "image_description": image_description}
     )
@@ -449,7 +456,7 @@ if question:
 
     with st.chat_message("assistant", avatar="🩹"):
         with st.spinner("Consulting the care team..."):
-            result = answer_question(effective_question)
+            result = answer_question(effective_question, history=prior_history)
         st.markdown(
             f'<span class="route-chip">{result["route"]} '
             f'({result["route_confidence"]:.2f})</span>',

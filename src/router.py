@@ -64,6 +64,10 @@ from dotenv import load_dotenv
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
+
+from src.rag_core import GROQ_SMALL_MODEL, get_small_llm  # noqa: E402
+
 load_dotenv()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +88,9 @@ _LLM_LABELS = (PT_ONLY, TRAINER_ONLY, SURGEON, NUTRITION_ONLY, TEAM, CLARIFY)
 
 CLARIFY_THRESHOLD = 0.50  # LLM confidence below this collapses to CLARIFY
 
-MODEL = "llama-3.3-70b-versatile"
+# Routing is classification, so it runs on the SMALL model (D27/D28) -- see
+# rag_core.GROQ_SMALL_MODEL. Kept as a module constant for test visibility.
+MODEL = GROQ_SMALL_MODEL
 
 _EMPTY_SCORES = {"pt": 0, "trainer": 0, "surgeon": 0, "nutrition": 0}
 
@@ -250,13 +256,9 @@ def _parse_llm_response(raw: str) -> RouteDecision:
 
 
 def _classify_with_llm(question: str) -> RouteDecision:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
+    if not os.getenv("GROQ_API_KEY"):
         raise EnvironmentError("GROQ_API_KEY not set; cannot run the LLM router.")
-    from langchain_groq import ChatGroq
-
-    llm = ChatGroq(model=MODEL, temperature=0, groq_api_key=api_key)
-    raw = (_ROUTER_PROMPT | llm | StrOutputParser()).invoke({"question": question})
+    raw = (_ROUTER_PROMPT | get_small_llm() | StrOutputParser()).invoke({"question": question})
     return _parse_llm_response(raw)
 
 
