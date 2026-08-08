@@ -82,6 +82,20 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 ROLES = ("user", "admin")
 
 
+def _url(db_url: str | None) -> str:
+    """Resolve the database URL at CALL time, not at import time.
+
+    Every public function here takes `db_url: str | None = None` rather than
+    the eager `db_url: str = DEFAULT_DB_URL`, because Python binds default
+    arguments once when the `def` executes. With the eager form, reassigning
+    `auth.DEFAULT_DB_URL` — which tests do, and which is the only way to point
+    `plans.revenue_report()` at a temp database, since it calls `list_users()`
+    with no arguments — had no effect and the function silently kept reading
+    the real file.
+    """
+    return db_url or DEFAULT_DB_URL
+
+
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode("ascii")
 
@@ -182,14 +196,14 @@ _SESSION_MIGRATIONS = {
 }
 
 
-def init_auth(db_url: str = DEFAULT_DB_URL) -> Engine:
+def init_auth(db_url: str | None = None) -> Engine:
     """Create the users table, migrate chat_sessions, return the engine.
 
     Idempotent and safe to call on every Streamlit rerun. Calls create_all
     directly rather than relying on database.init_db having imported this
     module, so the users table exists regardless of import order.
     """
-    engine = _engine_for(db_url)
+    engine = _engine_for(_url(db_url))
     Base.metadata.create_all(engine)
 
     with engine.begin() as conn:
@@ -215,7 +229,7 @@ def create_user(
     display_name: str | None = None,
     role: str = "user",
     plan_id: str = "free",
-    db_url: str = DEFAULT_DB_URL,
+    db_url: str | None = None,
 ) -> User:
     """Register an account. Raises ValueError on bad input or duplicate email.
 
@@ -230,8 +244,8 @@ def create_user(
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
 
-    init_auth(db_url)
-    with Session(_engine_for(db_url), expire_on_commit=False) as s:
+    init_auth(_url(db_url))
+    with Session(_engine_for(_url(db_url)), expire_on_commit=False) as s:
         if s.scalar(select(User).where(User.email == email)):
             raise ValueError("An account with that email already exists.")
         user = User(
@@ -249,7 +263,7 @@ def create_user(
 
 
 def authenticate(
-    email: str, password: str, *, db_url: str = DEFAULT_DB_URL
+    email: str, password: str, *, db_url: str | None = None
 ) -> User | None:
     """Return the user on a correct password, else None.
 
@@ -260,8 +274,8 @@ def authenticate(
     response latency.
     """
     email = (email or "").strip().lower()
-    init_auth(db_url)
-    with Session(_engine_for(db_url), expire_on_commit=False) as s:
+    init_auth(_url(db_url))
+    with Session(_engine_for(_url(db_url)), expire_on_commit=False) as s:
         user = s.scalar(select(User).where(User.email == email))
         if user is None or not user.is_active:
             # Burn comparable time so a missing account is not timing-visible.
@@ -280,34 +294,34 @@ def authenticate(
 _DUMMY_HASH = hash_password(uuid.uuid4().hex)
 
 
-def get_user(user_id: str, *, db_url: str = DEFAULT_DB_URL) -> User | None:
-    with Session(_engine_for(db_url), expire_on_commit=False) as s:
+def get_user(user_id: str, *, db_url: str | None = None) -> User | None:
+    with Session(_engine_for(_url(db_url)), expire_on_commit=False) as s:
         user = s.get(User, user_id)
         if user is not None:
             s.expunge(user)
         return user
 
 
-def get_user_by_email(email: str, *, db_url: str = DEFAULT_DB_URL) -> User | None:
-    with Session(_engine_for(db_url), expire_on_commit=False) as s:
+def get_user_by_email(email: str, *, db_url: str | None = None) -> User | None:
+    with Session(_engine_for(_url(db_url)), expire_on_commit=False) as s:
         user = s.scalar(select(User).where(User.email == (email or "").strip().lower()))
         if user is not None:
             s.expunge(user)
         return user
 
 
-def list_users(*, db_url: str = DEFAULT_DB_URL) -> list[User]:
+def list_users(*, db_url: str | None = None) -> list[User]:
     """All accounts, newest first — the dashboard's user table."""
-    init_auth(db_url)
-    with Session(_engine_for(db_url), expire_on_commit=False) as s:
+    init_auth(_url(db_url))
+    with Session(_engine_for(_url(db_url)), expire_on_commit=False) as s:
         rows = list(s.scalars(select(User).order_by(User.created_at.desc())))
         s.expunge_all()
         return rows
 
 
-def set_plan(user_id: str, plan_id: str, *, db_url: str = DEFAULT_DB_URL) -> bool:
+def set_plan(user_id: str, plan_id: str, *, db_url: str | None = None) -> bool:
     """Move a user onto a different plan. Returns False if they don't exist."""
-    with Session(_engine_for(db_url)) as s:
+    with Session(_engine_for(_url(db_url))) as s:
         user = s.get(User, user_id)
         if user is None:
             return False
@@ -316,10 +330,10 @@ def set_plan(user_id: str, plan_id: str, *, db_url: str = DEFAULT_DB_URL) -> boo
         return True
 
 
-def set_role(user_id: str, role: str, *, db_url: str = DEFAULT_DB_URL) -> bool:
+def set_role(user_id: str, role: str, *, db_url: str | None = None) -> bool:
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
-    with Session(_engine_for(db_url)) as s:
+    with Session(_engine_for(_url(db_url))) as s:
         user = s.get(User, user_id)
         if user is None:
             return False
@@ -342,7 +356,7 @@ DEMO_ACCOUNTS = [
 ]
 
 
-def seed_demo_users(*, db_url: str = DEFAULT_DB_URL) -> list[tuple[str, str, str]]:
+def seed_demo_users(*, db_url: str | None = None) -> list[tuple[str, str, str]]:
     """Create the demo accounts if absent. Returns (email, password, role).
 
     Idempotent: an existing email is left exactly as-is, so a demo account
@@ -350,16 +364,16 @@ def seed_demo_users(*, db_url: str = DEFAULT_DB_URL) -> list[tuple[str, str, str
     next app start.
     """
     created = []
-    init_auth(db_url)
+    init_auth(_url(db_url))
     for email, password, role, plan, name in DEMO_ACCOUNTS:
-        if get_user_by_email(email, db_url=db_url) is None:
+        if get_user_by_email(email, db_url=_url(db_url)) is None:
             create_user(
                 email,
                 password,
                 display_name=name,
                 role=role,
                 plan_id=plan,
-                db_url=db_url,
+                db_url=_url(db_url),
             )
             created.append((email, password, role))
     return created

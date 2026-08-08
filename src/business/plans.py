@@ -541,7 +541,12 @@ def capacity_report() -> dict:
     # evenly, how many such subscribers fit under the ceiling?
     hours_per_month = 730
     team_capacity_month = team_per_hour * hours_per_month
-    subs_supported = team_capacity_month / PLANS["recovery"].included_questions
+    # Floored, not rounded: you cannot serve a fraction of a subscriber, and
+    # the revenue ceiling below is derived from this same integer so the two
+    # figures the dashboard shows side by side always agree. Deriving the
+    # ceiling from the unfloored value reported "36 subscribers" next to
+    # "$698/mo", which implies $19.39 each on a $19 plan.
+    subs_supported = int(team_capacity_month // PLANS["recovery"].included_questions)
 
     return {
         "tpm_limit": tpm,
@@ -551,7 +556,7 @@ def capacity_report() -> dict:
         "team_questions_per_hour": round(team_per_hour, 1),
         "single_questions_per_hour": round(single_per_hour, 1),
         "team_questions_per_month": int(team_capacity_month),
-        "recovery_subscribers_supported": int(subs_supported),
+        "recovery_subscribers_supported": subs_supported,
         "revenue_ceiling_usd_month": round(
             subs_supported * PLANS["recovery"].monthly_price_usd, 2
         ),
