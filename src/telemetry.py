@@ -38,6 +38,20 @@ Design constraints this respects:
 * **Best-effort, not authoritative.** If a provider stops returning usage
   metadata the row records nulls rather than a fabricated estimate — the same
   reason `compliance_check` distinguishes "could not check" from "clean".
+
+Extended 2026-08-08 for monetization (D32/D34), keeping all of the above:
+
+* **Rows carry money.** `cost_usd` is priced at insert from
+  `business.pricing`, so a row reflects the rate in force when it was made
+  rather than being repriced retroactively when Groq changes its list. A call
+  with no usage metadata gets NULL, never 0.0 — an unmeasured call has to stay
+  distinguishable from a free one or every average drifts toward optimism.
+* **Rows carry an owner.** `user_id` / `session_id` make per-user
+  cost-to-serve and quota enforcement possible. Attribution moved from a module
+  global to ContextVars for this: a raced stage label mislabels a chart, but a
+  raced user label invoices the wrong customer. Unattributed rows are reported
+  as `(unattributed)` rather than dropped, so per-user totals always reconcile
+  with `summary()`.
 """
 
 from __future__ import annotations
@@ -45,11 +59,15 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+from src.business.pricing import price_call
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = _REPO_ROOT / "data" / "chat_history.db"
@@ -82,25 +100,88 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     latency_ms     INTEGER,
     ok             INTEGER NOT NULL,  -- 1 success, 0 error
     error_type     TEXT,              -- e.g. RateLimitError
-    is_rate_limit  INTEGER NOT NULL DEFAULT 0
+    is_rate_limit  INTEGER NOT NULL DEFAULT 0,
+    cost_usd       REAL,              -- NULL when usage was unavailable (D32)
+    user_id        TEXT,              -- who to bill; NULL = unattributed (D34)
+    session_id     TEXT               -- which conversation, for per-chat cost
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_created ON llm_calls (created_at);
 """
 
+# Columns added after the table first shipped (2026-08-08). SQLite has no
+# `ADD COLUMN IF NOT EXISTS`, so they are applied against a live PRAGMA read.
+# Without this, anyone with an existing chat_history.db keeps the old 11-column
+# table and every INSERT below fails -- silently, because record_call swallows.
+_MIGRATIONS = {
+    "cost_usd": "ALTER TABLE llm_calls ADD COLUMN cost_usd REAL",
+    "user_id": "ALTER TABLE llm_calls ADD COLUMN user_id TEXT",
+    "session_id": "ALTER TABLE llm_calls ADD COLUMN session_id TEXT",
+}
+
+# Indexes over migrated columns MUST run after _MIGRATIONS, never inside
+# _SCHEMA. On a database that already has llm_calls, `CREATE TABLE IF NOT
+# EXISTS` is a no-op, so the column does not exist yet and the CREATE INDEX
+# raises `no such column` -- which record_call would then swallow, leaving the
+# table permanently un-migrated and every insert failing in silence.
+_POST_MIGRATION_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_llm_calls_user ON llm_calls (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls (session_id)",
+)
+
 _lock = threading.Lock()
 _initialised = False
 
-# The node label for calls happening right now. LangChain callbacks don't know
+# Attribution for calls happening right now. LangChain callbacks don't know
 # which orchestrator node invoked them, and threading a parameter through every
-# call site would touch the frozen agent contract (PROJECT_PLAN §5.2). A module
-# level label set by the orchestrator around each stage is the smaller change.
-_current_node = "unknown"
+# call site would touch the frozen agent contract (PROJECT_PLAN §5.2), so the
+# stage label is set out-of-band by the orchestrator around each node.
+#
+# These are ContextVars, not module globals (D34). The original `_current_node`
+# global was a deliberate, documented tradeoff and it is fine for stage labels:
+# two concurrent users racing over a label mislabels a chart. It is NOT fine for
+# `_current_user` -- Streamlit serves every browser session on its own thread,
+# and a racing global there would invoice user A for user B's tokens. ContextVars
+# are per-thread, so concurrent requests attribute independently.
+#
+# Deliberate consequence: a callback fired from a worker thread that never had
+# these set records NULL rather than inheriting another request's identity.
+# Unattributed is recoverable; misattributed billing is not.
+_current_node: ContextVar[str] = ContextVar("telemetry_node", default="unknown")
+_current_user: ContextVar[str | None] = ContextVar("telemetry_user", default=None)
+_current_session: ContextVar[str | None] = ContextVar("telemetry_session", default=None)
 
 
 def set_node(name: str) -> None:
     """Label subsequent LLM calls with the pipeline stage making them."""
-    global _current_node
-    _current_node = name or "unknown"
+    _current_node.set(name or "unknown")
+
+
+def set_user(user_id: str | None, session_id: str | None = None) -> None:
+    """Attribute subsequent LLM calls to a user (and optionally a chat session).
+
+    Called once per request by the UI before the orchestrator runs. Everything
+    downstream on this thread bills to that user with no further plumbing.
+    """
+    _current_user.set(user_id)
+    if session_id is not None:
+        _current_session.set(session_id)
+
+
+@contextmanager
+def attributed_to(user_id: str | None, session_id: str | None = None):
+    """Scope attribution to a block, restoring whatever was set before.
+
+    Preferred over bare `set_user` where the caller is not the whole request --
+    tests and the CLI use it so one metered run cannot leak its identity into
+    the next.
+    """
+    utoken = _current_user.set(user_id)
+    stoken = _current_session.set(session_id)
+    try:
+        yield
+    finally:
+        _current_user.reset(utoken)
+        _current_session.reset(stoken)
 
 
 def _connect() -> sqlite3.Connection:
@@ -109,6 +190,12 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     if not _initialised:
         conn.executescript(_SCHEMA)
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(llm_calls)")}
+        for column, ddl in _MIGRATIONS.items():
+            if column not in existing:
+                conn.execute(ddl)
+        for ddl in _POST_MIGRATION_INDEXES:
+            conn.execute(ddl)
         conn.commit()
         _initialised = True
     return conn
@@ -123,19 +210,30 @@ def record_call(
     latency_ms: int | None,
     ok: bool,
     error_type: str | None = None,
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> None:
-    """Write one call row. Never raises -- telemetry must not break a consult."""
+    """Write one call row. Never raises -- telemetry must not break a consult.
+
+    `cost_usd` is computed here rather than at read time so a row is priced at
+    the rate in force when it was made; repricing history retroactively after a
+    Groq price change would quietly rewrite last month's reported margin.
+    """
     try:
         total = None
         if input_tokens is not None or output_tokens is not None:
             total = (input_tokens or 0) + (output_tokens or 0)
         is_rl = bool(error_type and "ratelimit" in error_type.replace("_", "").lower())
+        # None (not 0.0) when the provider reported no usage -- an unmeasured
+        # call must stay distinguishable from a genuinely free one.
+        cost = price_call(model, input_tokens, output_tokens)
         with _lock:
             conn = _connect()
             conn.execute(
                 "INSERT INTO llm_calls (created_at, node, model, input_tokens,"
-                " output_tokens, total_tokens, latency_ms, ok, error_type, is_rate_limit)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " output_tokens, total_tokens, latency_ms, ok, error_type,"
+                " is_rate_limit, cost_usd, user_id, session_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     datetime.now(timezone.utc).isoformat(),
                     node,
@@ -147,6 +245,9 @@ def record_call(
                     1 if ok else 0,
                     error_type,
                     1 if is_rl else 0,
+                    cost,
+                    user_id,
+                    session_id,
                 ),
             )
             conn.commit()
@@ -203,15 +304,17 @@ class UsageCallback(BaseCallbackHandler):
         except Exception:
             pass
         record_call(
-            node=_current_node, model=model, input_tokens=inp, output_tokens=out,
-            latency_ms=latency, ok=True,
+            node=_current_node.get(), model=model, input_tokens=inp,
+            output_tokens=out, latency_ms=latency, ok=True,
+            user_id=_current_user.get(), session_id=_current_session.get(),
         )
 
     def on_llm_error(self, error, *, run_id=None, **kwargs) -> None:
         record_call(
-            node=_current_node, model=None, input_tokens=None, output_tokens=None,
-            latency_ms=self._elapsed_ms(run_id), ok=False,
+            node=_current_node.get(), model=None, input_tokens=None,
+            output_tokens=None, latency_ms=self._elapsed_ms(run_id), ok=False,
             error_type=type(error).__name__,
+            user_id=_current_user.get(), session_id=_current_session.get(),
         )
 
 
@@ -232,19 +335,22 @@ def summary() -> dict:
     rows = _query(
         "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(is_rate_limit),0),"
         " COALESCE(AVG(latency_ms),0),"
-        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0),"
+        " COALESCE(SUM(cost_usd),0)"
         " FROM llm_calls",
         (SLOW_CALL_MS,),
     )
     if not rows:
-        return {"calls": 0, "tokens": 0, "rate_limits": 0, "avg_latency_ms": 0, "throttled": 0}
-    calls, tokens, rls, avg, slow = rows[0]
+        return {"calls": 0, "tokens": 0, "rate_limits": 0, "avg_latency_ms": 0,
+                "throttled": 0, "cost_usd": 0.0}
+    calls, tokens, rls, avg, slow, cost = rows[0]
     return {
         "calls": calls or 0,
         "tokens": tokens or 0,
         "rate_limits": rls or 0,   # explicit 429s -- usually 0, see SLOW_CALL_MS
         "avg_latency_ms": int(avg or 0),
         "throttled": slow or 0,    # the metric that actually detects throttling
+        "cost_usd": float(cost or 0.0),
     }
 
 
@@ -253,16 +359,106 @@ def by_node() -> list[dict]:
     rows = _query(
         "SELECT node, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(AVG(latency_ms),0),"
         " COALESCE(SUM(is_rate_limit),0),"
-        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0),"
+        " COALESCE(SUM(cost_usd),0)"
         " FROM llm_calls GROUP BY node ORDER BY SUM(total_tokens) DESC",
         (SLOW_CALL_MS,),
     )
     return [
         {"node": r[0], "calls": r[1], "tokens": r[2],
          "avg_latency_ms": int(r[3] or 0), "rate_limits": r[4],
-         "throttled": r[5] or 0}
+         "throttled": r[5] or 0, "cost_usd": float(r[6] or 0.0)}
         for r in rows
     ]
+
+
+# ── billing read side (D34) ──────────────────────────────────────────────────
+#
+# These exist so the business layer never re-derives cost from string length.
+# `cost_usd` is summed straight out of the rows Groq's own counts produced.
+
+
+def session_cost(session_id: str) -> dict:
+    """Real metered cost and tokens for one conversation.
+
+    Replaces `CostCalculator.calculate_query_cost` as the number the UI shows
+    for a chat: that estimated from the visible question and answer only, and
+    priced at a retired model's rates (D32).
+    """
+    rows = _query(
+        "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)"
+        " FROM llm_calls WHERE session_id = ?",
+        (session_id,),
+    )
+    calls, tokens, cost = rows[0] if rows else (0, 0, 0.0)
+    return {
+        "calls": calls or 0,
+        "tokens": tokens or 0,
+        "cost_usd": float(cost or 0.0),
+    }
+
+
+def user_usage(user_id: str, since: str | None = None) -> dict:
+    """One user's metered consumption, optionally from an ISO timestamp.
+
+    `since` is how a billing period is expressed -- pass the period start and
+    the numbers are that period's, which is what quota enforcement needs.
+    `questions` counts distinct chat sessions touched, not model calls.
+    """
+    where = "WHERE user_id = ?"
+    params: tuple = (user_id,)
+    if since:
+        where += " AND created_at >= ?"
+        params = (user_id, since)
+
+    rows = _query(
+        f"SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0),"
+        f" COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        f" FROM llm_calls {where}",
+        (SLOW_CALL_MS,) + params,
+    )
+    calls, tokens, cost, throttled = rows[0] if rows else (0, 0, 0.0, 0)
+    return {
+        "calls": calls or 0,
+        "tokens": tokens or 0,
+        "cost_usd": float(cost or 0.0),
+        "throttled": throttled or 0,
+    }
+
+
+def cost_by_user(since: str | None = None, limit: int = 100) -> list[dict]:
+    """Per-user cost-to-serve, dearest first -- the dashboard's margin table.
+
+    Rows with a NULL user_id are real calls that ran outside an attributed
+    request (CLI runs, tests, anything before login shipped). They are returned
+    under the label "(unattributed)" rather than dropped, so total cost on this
+    table always reconciles with `summary()`.
+    """
+    where = "WHERE created_at >= ?" if since else ""
+    params: tuple = (since,) if since else ()
+    rows = _query(
+        f"SELECT COALESCE(user_id,'(unattributed)'), COUNT(*),"
+        f" COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0),"
+        f" COUNT(DISTINCT session_id)"
+        f" FROM llm_calls {where}"
+        f" GROUP BY user_id ORDER BY SUM(cost_usd) DESC LIMIT ?",
+        params + (limit,),
+    )
+    return [
+        {"user_id": r[0], "calls": r[1], "tokens": r[2],
+         "cost_usd": float(r[3] or 0.0), "sessions": r[4] or 0}
+        for r in rows
+    ]
+
+
+def unpriced_calls() -> int:
+    """Successful calls carrying no cost -- i.e. the provider returned no usage.
+
+    Surfaced in the dashboard so "cost looks low" can be checked against "cost
+    was measurable" rather than assumed.
+    """
+    rows = _query("SELECT COUNT(*) FROM llm_calls WHERE ok = 1 AND cost_usd IS NULL")
+    return rows[0][0] if rows else 0
 
 
 def tokens_per_minute(limit: int = 30) -> list[dict]:
