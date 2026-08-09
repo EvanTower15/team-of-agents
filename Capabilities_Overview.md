@@ -699,13 +699,23 @@ orchestrator decided their question needed the surgeon. RED_FLAG answers are non
 they short-circuit on regex before any specialist runs (D5), so they cost nothing, and
 charging for being told to seek emergency care is indefensible.
 
-**The finding that matters commercially: cost is not the constraint, throughput is.**
+**The finding that matters commercially: cost is not the constraint, supply is.**
 Measured cost to serve is $0.0024 (single specialist) to ~$0.009 (TEAM) against a $0.12
-overage price — roughly **98% gross margin**. But Groq's free tier caps `gpt-oss-120b` at
-8,000 tokens/minute, and one TEAM question consumes 38,141 of them, i.e. **4.8 minutes of
-the entire account's budget for one answer**. That caps the whole tier at ~12.6 TEAM
-questions/hour, **~36 Recovery subscribers, and a $684/mo revenue ceiling** regardless of
-demand. Lifting it is a Groq tier change, not an architecture change.
+overage price — over **99% gross margin**. It is irrelevant, because Groq's free tier
+imposes two token limits that cap different things:
+
+| Limit | Constrains | Consequence |
+|---|---|---|
+| **8,000 tokens/minute** | Latency of *one* question | A TEAM question is 38,141 tokens = **4.8 minutes of the whole account's budget**, so Groq stalls it — 204.8 s measured, with zero 429s |
+| **200,000 tokens/day** ⟵ **binding** | Total *volume* | **~5.2 TEAM questions/day → 157/month** for the entire account |
+
+One Recovery subscriber is promised 250 questions a month, so **the free tier cannot host a
+single paying customer** (~2 if every question woke only one specialist). Lifting it is a
+Groq tier change, not an architecture change.
+
+⚠️ Capacity must be modelled from the **daily** cap. Deriving it from tokens-per-minute
+assumes sustaining 8,000 tok/min for a month (~350M tokens) when the daily cap allows 6M —
+an overstatement of ~58×. `plans.capacity_report()` models both and names the binding one.
 
 **Nothing is charged** — this is coursework. Accounts, quota, overage, and cost-to-serve are
 all real and computed from live rows; the only missing piece is a payment processor, and

@@ -77,6 +77,19 @@ DB_PATH = _REPO_ROOT / "data" / "chat_history.db"
 # one everyone notices, but per-minute is what stalls a live demo.
 TPM_LIMIT_120B = 8000
 
+# Groq free-tier DAILY token cap. Verified against console.groq.com/docs/rate-limits
+# and independently by this team hitting it more than once during testing.
+#
+# TPM and TPD constrain different things and it is worth keeping them straight:
+#   TPM (8,000/min)     -> why ONE question is slow. A TEAM question needs 4.8
+#                          minutes of budget, so Groq stalls it. A latency problem.
+#   TPD (200,000/day)   -> how many questions exist per day at all. ~5 TEAM
+#                          questions and the account is done until tomorrow.
+#                          A volume problem, and the one that caps the business.
+# The per-minute limit is what breaks a live demo; the daily limit is what makes
+# the free tier unable to host paying customers.
+TPD_LIMIT = 200_000
+
 # A call taking longer than this is almost certainly being throttled rather than
 # thinking. Measured baseline: an unthrottled specialist consult returns in
 # ~1-4s; under throttling the same call takes 30s+.

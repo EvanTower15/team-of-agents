@@ -198,19 +198,36 @@ Cost to serve, at the verified gpt-oss rates (§0.2):
 | Single specialist | 11,564 | **$0.0024** | $0.12 | **~98%** |
 | TEAM (3 specialists) | 38,141 | **~$0.009** | $0.12 | **~93%** |
 
-**So token cost is not the constraint — and that is the point.** The 8,000 tok/min ceiling is.
-One TEAM question consumes **4.8 minutes of the entire account's budget**, which caps the whole
-free tier at:
+**So token cost is not the constraint — and that is the point.** Groq's free tier imposes **two**
+token limits, and they cap different things. Keeping them straight matters, because modelling
+capacity from the per-minute limit alone overstates it by **~58×**:
+
+| Limit | What it constrains | Effect |
+|---|---|---|
+| **8,000 tokens/min** | **Latency** — one question | A TEAM question needs 38,141 tokens = **4.8 minutes of the whole account's budget**, so Groq stalls it. This is the 3m25s demo problem |
+| **200,000 tokens/day** ⟵ **binding** | **Volume** — how many questions exist | **~5.2 TEAM questions per day**, then the account is done until tomorrow. This is the business ceiling |
+
+Run the daily cap out to a month:
 
 | | |
 |---|---|
-| TEAM questions / hour (all users combined) | **12.6** |
-| Recovery subscribers supportable | **~36** |
-| Revenue ceiling | **$684 / month** |
+| TEAM questions / month (entire account) | **157** |
+| Recovery subscribers supportable (250 questions each) | **0** |
+| Revenue ceiling | **$0 / month** |
+| Same figure if every question woke only ONE specialist | **2 subscribers** |
 
-**The line to say on stage:** *"Our gross margin is 98%, and it doesn't matter — we top out at
-36 customers. The constraint isn't the price of a token, it's how many tokens a minute Groq will
-sell us. That's a purchase order, not a rewrite."*
+**The free tier cannot host a single paying customer.** One subscriber is promised 250 questions
+a month; the whole account has 157.
+
+**The line to say on stage:** *"Our gross margin is over 99%, and it is completely irrelevant. On
+the free tier the entire account supports 157 team questions a month, and one subscriber is
+promised 250 — so we can host zero paying customers. The constraint isn't the price of a token,
+it's how many tokens Groq will sell us in a day. That's a purchase order, not a rewrite."*
+
+> ⚠️ **Do not quote a per-minute-derived capacity number.** An earlier draft of this section said
+> "~36 subscribers, $684/mo" by modelling TPM only — that assumes sustaining 8,000 tok/min for a
+> full month (~350M tokens) when the daily cap allows 6M. Both limits are real; only the tighter
+> one is the ceiling. The corrected model is in `plans.capacity_report()` and is pinned by tests.
 
 That reframes what would otherwise be an embarrassing demo problem (the 3m25s stall) into the
 scaling analysis a business audience actually wants, and it is the same number in both places.
@@ -1257,7 +1274,7 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
 | Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com: `gpt-oss-120b` **$0.15/1M in · $0.60/1M out**; `gpt-oss-20b` **$0.075/1M in · $0.30/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code (`src/business/pricing.py` is now the only place a price lives) |
 | **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM — against $0.12/question overage, i.e. **~98% gross margin**. Cost is NOT the constraint |
-| **The real constraint** ✱ | **8,000 tok/min** on `gpt-oss-120b`. One TEAM question = 38,141 tokens = **4.8 minutes of the entire account's budget** → ~12.6 TEAM questions/hour, **~36 Recovery subscribers, $684/mo ceiling** regardless of demand. A Groq tier change, not an architecture change |
+| **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month**, so **0 Recovery subscribers** (each promised 250). A TPM-only model overstates capacity ~58× — do not use one |
 | Monetization ✱ | Accounts (scrypt, stdlib), Free/Recovery $19/Clinic $99 with overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |

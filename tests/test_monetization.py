@@ -435,17 +435,52 @@ def test_revenue_and_margin_reports(wired_db):
     assert margin["gross_margin_pct"] > 99  # no usage recorded yet
 
 
-def test_capacity_report_reflects_the_measured_ceiling():
-    """The binding constraint is throughput, and the numbers must say so."""
+def test_capacity_is_limited_by_the_daily_cap_not_the_per_minute_one():
+    """The regression this guards against produced a 57x overstatement.
+
+    Modelling capacity from TPM alone assumes 8,000 tok/min sustained for a
+    whole month (~350M tokens) when the daily cap allows 6M. Both limits are
+    real; the report must derive its ceiling from the tighter one.
+    """
     cap = plans.capacity_report()
     assert cap["tpm_limit"] == telemetry.TPM_LIMIT_120B
-    # One TEAM question exceeds a full minute of the account's entire budget.
-    assert cap["team_minutes_of_budget"] > 1.0
-    assert cap["team_questions_per_hour"] < cap["single_questions_per_hour"]
-    assert cap["recovery_subscribers_supported"] > 0
-    assert cap["revenue_ceiling_usd_month"] == pytest.approx(
-        cap["recovery_subscribers_supported"] * 19.0, rel=0.01
+    assert cap["tpd_limit"] == telemetry.TPD_LIMIT
+    assert cap["binding_constraint"] == "daily token cap (TPD)"
+
+    # Volume ceiling comes from the daily cap, not from TPM x hours.
+    assert cap["team_questions_per_day"] == pytest.approx(
+        telemetry.TPD_LIMIT / plans.TOKENS_TEAM, rel=0.01
     )
+    # Derived from the exact ratio, not from the rounded per-day figure the UI
+    # shows -- 5.24/day is 157/month, while the displayed 5.2 would say 156.
+    assert cap["team_questions_per_month"] == int(
+        (telemetry.TPD_LIMIT / plans.TOKENS_TEAM) * plans.DAYS_PER_MONTH
+    )
+    # A TPM-only model would have been wildly optimistic.
+    assert cap["tpm_only_overstatement_x"] > 10
+
+
+def test_free_tier_cannot_host_a_paying_subscriber():
+    """The headline commercial finding, pinned so nobody quotes a rosier one."""
+    cap = plans.capacity_report()
+    included = plans.PLANS["recovery"].included_questions
+
+    # 200k tokens/day cannot honour even one 250-question/month promise if
+    # those questions wake the full team.
+    assert cap["team_questions_per_month"] < included
+    assert cap["recovery_subscribers_supported"] == 0
+    assert cap["revenue_ceiling_usd_month"] == 0.0
+
+    # The cheapest possible question mix does slightly better, but not much.
+    assert cap["recovery_subscribers_supported_single"] >= 1
+    assert cap["recovery_subscribers_supported_single"] < 5
+
+
+def test_one_team_question_exceeds_a_minute_of_budget():
+    """The latency side: why a single question stalls, distinct from volume."""
+    cap = plans.capacity_report()
+    assert cap["team_minutes_of_budget"] > 1.0
+    assert cap["team_questions_per_hour"] < 60
 
 
 def test_invoices_are_marked_simulated(wired_db):

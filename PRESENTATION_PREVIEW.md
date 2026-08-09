@@ -259,8 +259,10 @@ Two halves, both as **big numbers**, not paragraphs.
 - **Measured, not estimated:** a single-specialist question is **11,564 tokens across 6
   calls** ($0.0024); a TEAM question **38,141 tokens across 14** (~$0.009). Against $0.12
   per question that is **~98% gross margin**
-- **The constraint is throughput, not cost:** 8,000 tok/min means one TEAM question eats
-  **4.8 minutes** of the whole account's budget → ~36 subscribers, $684/mo ceiling
+- **The constraint is supply, not cost.** Two free-tier caps: **8,000 tok/min** makes one
+  TEAM question eat **4.8 minutes** of the account's budget (the stall you'll see live),
+  and **200,000 tok/day** allows only **~5 TEAM questions a day → 157/month**. One
+  subscriber is promised 250, so the free tier hosts **zero paying customers**
 - Embeddings run **locally and free** — zero API cost, zero rate limits, works offline
 - Hard budget guard: **$0.05 max per query**, **$1.00 max per session** — a runaway agent loop is
   capped by code

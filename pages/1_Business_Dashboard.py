@@ -186,31 +186,69 @@ if margin["by_route"]:
 
 st.subheader("Capacity — the real constraint")
 st.caption(
-    "Token cost is not what limits this business. Groq's free tier caps "
-    f"`gpt-oss-120b` at {capacity['tpm_limit']:,} tokens/minute, and one TEAM "
-    f"question consumes {capacity['tokens_team']:,} of them — "
-    f"{capacity['team_minutes_of_budget']} minutes of the entire account's "
-    "budget for a single answer."
+    "Token cost is not what limits this business; Groq's rate limits are. The "
+    "free tier imposes two token caps that constrain different things, and the "
+    "**daily** one binds far earlier than the per-minute one."
 )
 
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("TEAM questions / hr", f"{capacity['team_questions_per_hour']:.1f}",
-          help="Across ALL users combined, not per user.")
-k2.metric("Single-specialist / hr", f"{capacity['single_questions_per_hour']:.1f}")
-k3.metric(
-    "Subscribers supported", f"{capacity['recovery_subscribers_supported']:,}",
-    help="Recovery subscribers using their full 250 questions/month, spread evenly.",
-)
-k4.metric("Revenue ceiling", f"${capacity['revenue_ceiling_usd_month']:,.0f}/mo",
-          help="What the current Groq tier can physically support.")
+lat, vol = st.columns(2)
+with lat:
+    st.markdown(
+        f"**Per-minute — {capacity['tpm_limit']:,} tok/min** · a *latency* limit"
+    )
+    st.caption(
+        f"One TEAM question is {capacity['tokens_team']:,} tokens = "
+        f"**{capacity['team_minutes_of_budget']} minutes** of the whole "
+        f"account's budget, so Groq stalls it (204.8 s measured, zero 429s). "
+        f"This is what breaks a live demo — it does not cap the business."
+    )
+    st.metric("TEAM questions / hour", f"{capacity['team_questions_per_hour']:.1f}")
 
-st.warning(
-    f"**This is the growth story, and it is a throughput story.** At ~98% gross "
-    f"margin, cost is not the limit — the rate limit is. The current tier caps "
-    f"us near **{capacity['recovery_subscribers_supported']} subscribers** and "
-    f"**${capacity['revenue_ceiling_usd_month']:,.0f}/mo**. Lifting it is a Groq "
-    f"tier change, not an architecture change.",
-    icon="📊",
+with vol:
+    st.markdown(
+        f"**Per-day — {capacity['tpd_limit']:,} tok/day** · a *volume* limit "
+        "⟵ **binding**"
+    )
+    st.caption(
+        f"Only **{capacity['team_questions_per_day']:.1f} TEAM questions per "
+        f"day** exist before the account is finished until tomorrow "
+        f"({capacity['single_questions_per_day']:.1f} single-specialist). This "
+        f"is what caps how many customers can be served at all."
+    )
+    st.metric("TEAM questions / month", f"{capacity['team_questions_per_month']:,}")
+
+k1, k2, k3 = st.columns(3)
+k1.metric(
+    "Subscribers supported (TEAM)",
+    f"{capacity['recovery_subscribers_supported']:,}",
+    help=f"Recovery subscribers whose full {plans.PLANS['recovery'].included_questions} "
+         "questions/month could actually be honoured, if every question were a "
+         "TEAM question.",
+)
+k2.metric(
+    "Subscribers (single-specialist)",
+    f"{capacity['recovery_subscribers_supported_single']:,}",
+    help="The same figure if every question woke exactly one specialist — the "
+         "cheapest possible mix.",
+)
+k3.metric("Revenue ceiling", f"${capacity['revenue_ceiling_usd_month']:,.0f}/mo")
+
+st.error(
+    f"**The free tier cannot host a single paying subscriber.** At "
+    f"{capacity['tpd_limit']:,} tokens/day the whole account supports "
+    f"**{capacity['team_questions_per_month']:,} TEAM questions a month** — and "
+    f"one Recovery subscriber is promised "
+    f"{plans.PLANS['recovery'].included_questions}. Gross margin is >99%; it is "
+    f"irrelevant. **The constraint is supply, not price, and the fix is a Groq "
+    f"tier upgrade — a purchase order, not a rewrite.**",
+    icon="🚧",
+)
+st.caption(
+    f"Modelling this from the per-minute limit alone would have claimed "
+    f"~{capacity['tpm_only_overstatement_x']}× more capacity than exists — "
+    f"sustaining {capacity['tpm_limit']:,} tok/min for a month is ~350M tokens, "
+    f"while the daily cap allows 6M. Both limits are real; only the tighter one "
+    f"is the ceiling."
 )
 
 if metered.get("throttled"):

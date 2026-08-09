@@ -516,52 +516,81 @@ def margin_report(since: str | None = None) -> dict:
     }
 
 
+TOKENS_SINGLE_SPECIALIST = 11_564  # measured 2026-08-08, 6 calls
+TOKENS_TEAM = 38_141               # measured 2026-08-08, 14 calls, 204.8 s
+DAYS_PER_MONTH = 30
+
+
 def capacity_report() -> dict:
-    """What the rate limit — not token cost — allows us to sell.
+    """What the rate limits — not token cost — allow us to sell.
 
-    Measured inputs (2026-08-08, src/telemetry.py):
-        single-specialist question  11,564 tokens
-        three-specialist TEAM       38,141 tokens, 204.8 s wall clock
+    Groq's free tier imposes TWO token limits, and they constrain different
+    things. Getting this wrong understates the problem by ~58x, so both are
+    modelled here and the report names which one actually binds:
 
-    Groq's free tier allows 8,000 tokens/minute on gpt-oss-120b. Serving one
-    TEAM question therefore occupies ~4.8 minutes of the entire account's
-    budget, which is why the app appears to hang: the SDK backs off silently
-    rather than erroring (hence telemetry's SLOW_CALL_MS rather than a 429
-    count). This is the real ceiling on how many customers can be served.
+        TPM  8,000 tokens/minute  A TEAM question needs 38,141 tokens = 4.8
+                                  minutes of the whole account's budget, so
+                                  Groq stalls it (204.8 s measured, with ZERO
+                                  429s -- see telemetry.SLOW_CALL_MS). This is
+                                  a LATENCY constraint: it makes one question
+                                  slow, and it is what breaks a live demo.
+
+        TPD  200,000 tokens/day   Only ~5 TEAM questions exist per day before
+                                  the account is finished until tomorrow. This
+                                  is a VOLUME constraint, and it is the one
+                                  that determines how many customers can be
+                                  served at all.
+
+    The daily cap binds far earlier. Sustaining 8,000 tok/min for a whole month
+    would be ~350M tokens; the daily cap allows 6M. Any capacity figure derived
+    from TPM alone is fiction.
     """
     from src import telemetry
 
     tpm = telemetry.TPM_LIMIT_120B
-    single, team = 11_564, 38_141
+    tpd = telemetry.TPD_LIMIT
+    single, team = TOKENS_SINGLE_SPECIALIST, TOKENS_TEAM
+    included = PLANS["recovery"].included_questions
 
-    team_per_hour = (tpm * 60) / team
-    single_per_hour = (tpm * 60) / single
+    # Volume ceiling (the binding one): the daily token cap.
+    team_per_day = tpd / team
+    single_per_day = tpd / single
+    team_per_month = team_per_day * DAYS_PER_MONTH
+    single_per_month = single_per_day * DAYS_PER_MONTH
 
-    # If a Recovery subscriber uses their full 250 questions a month, spread
-    # evenly, how many such subscribers fit under the ceiling?
-    hours_per_month = 730
-    team_capacity_month = team_per_hour * hours_per_month
-    # Floored, not rounded: you cannot serve a fraction of a subscriber, and
-    # the revenue ceiling below is derived from this same integer so the two
-    # figures the dashboard shows side by side always agree. Deriving the
-    # ceiling from the unfloored value reported "36 subscribers" next to
-    # "$698/mo", which implies $19.39 each on a $19 plan.
-    subs_supported = int(team_capacity_month // PLANS["recovery"].included_questions)
+    # Subscribers a plan promise can actually be honoured for. Floored so the
+    # revenue ceiling derived from it agrees with the count shown beside it.
+    subs_team = int(team_per_month // included)
+    subs_single = int(single_per_month // included)
+
+    # What TPM alone would imply if it were the only limit -- kept purely to
+    # show how far off a TPM-only model is.
+    tpm_only_month = (tpm * 60 * 24 * DAYS_PER_MONTH) / team
 
     return {
         "tpm_limit": tpm,
+        "tpd_limit": tpd,
         "tokens_single_specialist": single,
         "tokens_team": team,
+        # latency side (TPM)
         "team_minutes_of_budget": round(team / tpm, 1),
-        "team_questions_per_hour": round(team_per_hour, 1),
-        "single_questions_per_hour": round(single_per_hour, 1),
-        "team_questions_per_month": int(team_capacity_month),
-        "recovery_subscribers_supported": subs_supported,
+        "team_questions_per_hour": round((tpm * 60) / team, 1),
+        # volume side (TPD) -- the binding constraint
+        "team_questions_per_day": round(team_per_day, 1),
+        "single_questions_per_day": round(single_per_day, 1),
+        "team_questions_per_month": int(team_per_month),
+        "single_questions_per_month": int(single_per_month),
+        "recovery_subscribers_supported": subs_team,
+        "recovery_subscribers_supported_single": subs_single,
         "revenue_ceiling_usd_month": round(
-            subs_supported * PLANS["recovery"].monthly_price_usd, 2
+            subs_team * PLANS["recovery"].monthly_price_usd, 2
         ),
+        "binding_constraint": "daily token cap (TPD)",
+        "tpm_only_overstatement_x": round(tpm_only_month / team_per_month, 1),
         "note": (
-            "Throughput, not token cost, is the binding constraint. Lifting it "
-            "is a Groq tier change, not an architecture change."
+            "Throughput, not token cost, is the binding constraint -- and the "
+            "DAILY cap binds long before the per-minute one. The free tier "
+            "cannot host a single paying subscriber; lifting it is a Groq tier "
+            "change, not an architecture change."
         ),
     }
