@@ -343,20 +343,47 @@ def _query(sql: str, params: tuple = ()) -> list[tuple]:
         return []
 
 
+def _projected_cost_sql() -> str:
+    """SQL expression projecting each row onto the production stack (D35).
+
+    Generated from `pricing.PRODUCTION_STACK` rather than written out, so the
+    scenario is defined in exactly one place and a rate change cannot leave a
+    hand-written CASE behind. NULL in, NULL out: a row with no usage metadata
+    projects to NULL, never 0.0, matching how `cost_usd` treats the same case.
+    """
+    from src.business import pricing
+
+    branches = []
+    for measured_model, rate in pricing.PRODUCTION_STACK.items():
+        branches.append(
+            f"WHEN model = '{measured_model}' THEN"
+            f" (COALESCE(input_tokens,0) * {rate.input} / 1000000.0)"
+            f" + (COALESCE(output_tokens,0) * {rate.output} / 1000000.0)"
+        )
+    fallback = pricing._PRODUCTION_FALLBACK
+    return (
+        "CASE WHEN input_tokens IS NULL AND output_tokens IS NULL THEN NULL "
+        + " ".join(branches)
+        + f" ELSE (COALESCE(input_tokens,0) * {fallback.input} / 1000000.0)"
+        f" + (COALESCE(output_tokens,0) * {fallback.output} / 1000000.0) END"
+    )
+
+
 def summary() -> dict:
     """Totals since the table was created."""
     rows = _query(
         "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(is_rate_limit),0),"
         " COALESCE(AVG(latency_ms),0),"
         " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0),"
-        " COALESCE(SUM(cost_usd),0)"
+        " COALESCE(SUM(cost_usd),0),"
+        f" COALESCE(SUM({_projected_cost_sql()}),0)"
         " FROM llm_calls",
         (SLOW_CALL_MS,),
     )
     if not rows:
         return {"calls": 0, "tokens": 0, "rate_limits": 0, "avg_latency_ms": 0,
-                "throttled": 0, "cost_usd": 0.0}
-    calls, tokens, rls, avg, slow, cost = rows[0]
+                "throttled": 0, "cost_usd": 0.0, "projected_usd": 0.0}
+    calls, tokens, rls, avg, slow, cost, projected = rows[0]
     return {
         "calls": calls or 0,
         "tokens": tokens or 0,
@@ -364,6 +391,7 @@ def summary() -> dict:
         "avg_latency_ms": int(avg or 0),
         "throttled": slow or 0,    # the metric that actually detects throttling
         "cost_usd": float(cost or 0.0),
+        "projected_usd": float(projected or 0.0),
     }
 
 
@@ -373,14 +401,16 @@ def by_node() -> list[dict]:
         "SELECT node, COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(AVG(latency_ms),0),"
         " COALESCE(SUM(is_rate_limit),0),"
         " COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0),"
-        " COALESCE(SUM(cost_usd),0)"
+        " COALESCE(SUM(cost_usd),0),"
+        f" COALESCE(SUM({_projected_cost_sql()}),0)"
         " FROM llm_calls GROUP BY node ORDER BY SUM(total_tokens) DESC",
         (SLOW_CALL_MS,),
     )
     return [
         {"node": r[0], "calls": r[1], "tokens": r[2],
          "avg_latency_ms": int(r[3] or 0), "rate_limits": r[4],
-         "throttled": r[5] or 0, "cost_usd": float(r[6] or 0.0)}
+         "throttled": r[5] or 0, "cost_usd": float(r[6] or 0.0),
+         "projected_usd": float(r[7] or 0.0)}
         for r in rows
     ]
 
@@ -399,15 +429,17 @@ def session_cost(session_id: str) -> dict:
     priced at a retired model's rates (D32).
     """
     rows = _query(
-        "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0)"
+        "SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0),"
+        f" COALESCE(SUM({_projected_cost_sql()}),0)"
         " FROM llm_calls WHERE session_id = ?",
         (session_id,),
     )
-    calls, tokens, cost = rows[0] if rows else (0, 0, 0.0)
+    calls, tokens, cost, projected = rows[0] if rows else (0, 0, 0.0, 0.0)
     return {
         "calls": calls or 0,
         "tokens": tokens or 0,
         "cost_usd": float(cost or 0.0),
+        "projected_usd": float(projected or 0.0),
     }
 
 
@@ -426,16 +458,20 @@ def user_usage(user_id: str, since: str | None = None) -> dict:
 
     rows = _query(
         f"SELECT COUNT(*), COALESCE(SUM(total_tokens),0), COALESCE(SUM(cost_usd),0),"
-        f" COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0)"
+        f" COALESCE(SUM(CASE WHEN latency_ms > ? THEN 1 ELSE 0 END),0),"
+        f" COALESCE(SUM({_projected_cost_sql()}),0)"
         f" FROM llm_calls {where}",
         (SLOW_CALL_MS,) + params,
     )
-    calls, tokens, cost, throttled = rows[0] if rows else (0, 0, 0.0, 0)
+    calls, tokens, cost, throttled, projected = (
+        rows[0] if rows else (0, 0, 0.0, 0, 0.0)
+    )
     return {
         "calls": calls or 0,
         "tokens": tokens or 0,
         "cost_usd": float(cost or 0.0),
         "throttled": throttled or 0,
+        "projected_usd": float(projected or 0.0),
     }
 
 

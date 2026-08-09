@@ -363,8 +363,11 @@ def test_unknown_plan_falls_back_to_least_privileged():
 
 def test_overage_only_applies_beyond_the_included_quota():
     recovery = plans.PLANS["recovery"]
-    assert recovery.overage_cost(250) == 0.0
-    assert recovery.overage_cost(260) == pytest.approx(10 * 0.12)
+    included = recovery.included_questions
+    assert recovery.overage_cost(included) == 0.0
+    assert recovery.overage_cost(included + 10) == pytest.approx(
+        10 * recovery.overage_per_question_usd
+    )
     assert plans.PLANS["free"].overage_cost(1000) == 0.0  # free never bills
 
 
@@ -380,18 +383,23 @@ def test_free_user_blocked_at_quota(wired_db):
 
 
 def test_paid_user_passes_into_overage(wired_db):
+    plan = plans.PLANS["recovery"]
     u = auth.create_user("paid@x.com", "password123", plan_id="recovery",
                          db_url=wired_db)
-    for _ in range(260):
+    for _ in range(plan.included_questions + 10):
         plans.record_question(u.user_id, plan_id="recovery", route="TEAM",
-                              cost_usd=0.009)
+                              cost_usd=0.009, projected_usd=0.185)
 
     verdict = plans.check_quota(u.user_id, "recovery")
     assert verdict.allowed is True
     assert verdict.will_incur_overage is True
     assert verdict.usage.overage_questions == 10
-    assert verdict.usage.overage_usd == pytest.approx(1.20)
-    assert verdict.usage.total_billed_usd == pytest.approx(20.20)
+    assert verdict.usage.overage_usd == pytest.approx(
+        10 * plan.overage_per_question_usd
+    )
+    assert verdict.usage.total_billed_usd == pytest.approx(
+        plan.monthly_price_usd + 10 * plan.overage_per_question_usd
+    )
 
 
 def test_red_flag_does_not_consume_quota(wired_db):
@@ -412,10 +420,15 @@ def test_usage_uses_metered_cost_not_an_estimate(wired_db):
                           latency_ms=2000, ok=True, user_id=u.user_id,
                           session_id="s1")
     usage = plans.usage_for(u.user_id, "recovery")
-    assert usage.cost_to_serve_usd == pytest.approx(
+    # `actual_cost_usd` is what Groq really charged...
+    assert usage.actual_cost_usd == pytest.approx(
         30_000 / 1e6 * 0.15 + 8_000 / 1e6 * 0.60
     )
-    assert usage.gross_margin_pct > 99  # $19 subscription vs sub-cent cost
+    # ...while cost_to_serve is the same tokens on the production stack (D35).
+    assert usage.cost_to_serve_usd == pytest.approx(
+        30_000 / 1e6 * 3.00 + 8_000 / 1e6 * 15.00
+    )
+    assert usage.cost_to_serve_usd > usage.actual_cost_usd * 15
 
 
 def test_revenue_and_margin_reports(wired_db):
@@ -423,15 +436,19 @@ def test_revenue_and_margin_reports(wired_db):
     auth.create_user("r@x.com", "password123", plan_id="recovery", db_url=wired_db)
     auth.create_user("c@x.com", "password123", plan_id="clinic", db_url=wired_db)
 
+    expected_mrr = (
+        plans.PLANS["recovery"].monthly_price_usd
+        + plans.PLANS["clinic"].monthly_price_usd
+    )
     rev = plans.revenue_report()
     assert rev["users_active"] == 3
     assert rev["users_paying"] == 2
-    assert rev["mrr_usd"] == pytest.approx(19.0 + 99.0)
-    assert rev["arr_usd"] == pytest.approx((19.0 + 99.0) * 12)
+    assert rev["mrr_usd"] == pytest.approx(expected_mrr)
+    assert rev["arr_usd"] == pytest.approx(expected_mrr * 12)
     assert rev["by_plan"] == {"free": 1, "recovery": 1, "clinic": 1}
 
     margin = plans.margin_report()
-    assert margin["revenue_usd"] == pytest.approx(118.0)
+    assert margin["revenue_usd"] == pytest.approx(expected_mrr)
     assert margin["gross_margin_pct"] > 99  # no usage recorded yet
 
 
@@ -460,20 +477,27 @@ def test_capacity_is_limited_by_the_daily_cap_not_the_per_minute_one():
     assert cap["tpm_only_overstatement_x"] > 10
 
 
-def test_free_tier_cannot_host_a_paying_subscriber():
-    """The headline commercial finding, pinned so nobody quotes a rosier one."""
+def test_free_tier_supports_a_negligible_number_of_subscribers():
+    """The headline commercial finding, pinned so nobody quotes a rosier one.
+
+    The exact subscriber count moves whenever the plan quota changes -- it was
+    0 against the old 250-question plan and is 1 against the current 100 -- so
+    this asserts the ORDER OF MAGNITUDE, which is the durable claim. A free
+    tier whose entire account tops out in the tens of dollars per month cannot
+    fund a business regardless of which side of 1 it lands on.
+    """
     cap = plans.capacity_report()
-    included = plans.PLANS["recovery"].included_questions
+    recovery = plans.PLANS["recovery"]
 
-    # 200k tokens/day cannot honour even one 250-question/month promise if
-    # those questions wake the full team.
-    assert cap["team_questions_per_month"] < included
-    assert cap["recovery_subscribers_supported"] == 0
-    assert cap["revenue_ceiling_usd_month"] == 0.0
+    assert cap["recovery_subscribers_supported"] <= 2
+    assert cap["recovery_subscribers_supported_single"] <= 10
+    assert cap["revenue_ceiling_usd_month"] <= 5 * recovery.monthly_price_usd
 
-    # The cheapest possible question mix does slightly better, but not much.
-    assert cap["recovery_subscribers_supported_single"] >= 1
-    assert cap["recovery_subscribers_supported_single"] < 5
+    # Internally consistent: the ceiling is the integer subscriber count times
+    # the plan price, never a fractional-subscriber figure.
+    assert cap["revenue_ceiling_usd_month"] == pytest.approx(
+        cap["recovery_subscribers_supported"] * recovery.monthly_price_usd
+    )
 
 
 def test_one_team_question_exceeds_a_minute_of_budget():
@@ -497,3 +521,144 @@ def test_invoices_are_marked_simulated(wired_db):
     conn.close()
     assert status == "simulated"
     assert total == pytest.approx(20.2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Production-scenario projection (D35)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_production_stack_rates_are_the_verified_ones():
+    """Sonnet 5 STANDARD rates, not the introductory ones.
+
+    The $2/$10 intro price expires 2026-08-31, three weeks after this project
+    is presented. Pricing a business model on an expiring promotional rate
+    would make every margin figure downstream optimistic by ~50%.
+    """
+    specialist = pricing.PRODUCTION_STACK["openai/gpt-oss-120b"]
+    assert (specialist.input, specialist.output) == (3.00, 15.00)
+    assert specialist.role == "specialist"
+
+    orchestration = pricing.PRODUCTION_STACK["openai/gpt-oss-20b"]
+    assert (orchestration.input, orchestration.output) == (1.00, 5.00)
+    assert orchestration.role == "orchestration"
+
+
+def test_projection_is_a_tier_for_tier_swap():
+    """Each measured model maps to its production equivalent, not a flat rate."""
+    big = pricing.project_call("openai/gpt-oss-120b", 1_000_000, 1_000_000)
+    small = pricing.project_call("openai/gpt-oss-20b", 1_000_000, 1_000_000)
+    assert big == pytest.approx(18.0)   # 3 + 15
+    assert small == pytest.approx(6.0)  # 1 + 5
+    # The cheap tier stays genuinely cheaper -- the architectural cost lever
+    # survives the projection rather than being flattened away.
+    assert small < big
+
+
+def test_projection_of_an_unmeasured_call_is_none():
+    assert pricing.project_call("openai/gpt-oss-120b", None, None) is None
+
+
+def test_unmapped_model_projects_at_the_dearest_tier():
+    unknown = pricing.project_call("someone/new-model", 1_000, 1_000)
+    dearest = pricing.project_call("openai/gpt-oss-120b", 1_000, 1_000)
+    assert unknown == pytest.approx(dearest)
+
+
+def test_measured_run_projects_to_the_documented_multiplier(wired_db):
+    """Ben's measured single-specialist run: $0.0024 actual -> ~$0.052 projected.
+
+    Pins the ~20x headline so nobody quotes a multiplier the code no longer
+    produces.
+    """
+    for node, model, i, o in [
+        ("consult:pt", "openai/gpt-oss-120b", 2914, 729),
+        ("synthesize", "openai/gpt-oss-120b", 2113, 528),
+        ("extract_constraints:pt", "openai/gpt-oss-120b", 1980, 495),
+        ("compliance_check", "openai/gpt-oss-20b", 1091, 273),
+        ("route", "openai/gpt-oss-20b", 790, 198),
+        ("plan", "openai/gpt-oss-20b", 362, 91),
+    ]:
+        telemetry.record_call(node=node, model=model, input_tokens=i,
+                              output_tokens=o, latency_ms=100, ok=True,
+                              user_id="u1", session_id="s1")
+
+    s = telemetry.summary()
+    assert s["tokens"] == 11_564  # the measured figure, unchanged
+    assert s["cost_usd"] == pytest.approx(0.00244, abs=1e-4)
+    assert s["projected_usd"] == pytest.approx(0.0524, abs=1e-3)
+    assert s["projected_usd"] / s["cost_usd"] == pytest.approx(21.5, abs=0.5)
+
+
+def test_projected_cost_is_not_stored_on_the_row(wired_db):
+    """Projection re-derives at read time; only actual cost is persisted.
+
+    Actual cost is a historical fact and is frozen at insert. A projection is a
+    model output -- changing the scenario must change it, which is impossible
+    if it was baked into the row.
+    """
+    telemetry.record_call(node="consult:pt", model="openai/gpt-oss-120b",
+                          input_tokens=1000, output_tokens=100, latency_ms=10,
+                          ok=True, user_id="u1", session_id="s1")
+    conn = sqlite3.connect(telemetry.DB_PATH)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(llm_calls)")}
+    conn.close()
+    assert "projected_usd" not in cols
+    assert telemetry.session_cost("s1")["projected_usd"] > 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Derived pricing
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_every_paid_plan_clears_the_margin_target():
+    """The plans are derived from cost, so this must hold by construction."""
+    for row in plans.derive_pricing():
+        if row["price_usd"] == 0:
+            assert row["clears_target"] is None  # free: margin is undefined
+            continue
+        assert row["clears_target"] is True, f"{row['plan']} misses the target"
+        assert row["margin_pct"] >= plans.TARGET_GROSS_MARGIN * 100
+
+
+def test_overage_is_priced_to_the_same_margin_as_the_subscription():
+    """A heavy user must be about as profitable as a light one.
+
+    If overage were priced below the subscription's effective margin, every
+    question past the quota would dilute the business.
+    """
+    for row in plans.derive_pricing():
+        if row["price_usd"] == 0:
+            continue
+        assert row["overage_margin_pct"] > 65.0
+
+
+def test_the_old_poc_plan_would_lose_money(wired_db):
+    """The finding that forced the reprice, pinned as a regression guard."""
+    old_price, old_quota = 19.0, 250
+    cost = old_quota * plans.BLENDED_COST_PER_QUESTION_USD
+    margin_pct = (old_price - cost) / old_price * 100.0
+    assert cost > old_price          # underwater at full utilisation
+    assert margin_pct < -30.0        # ~ -32%
+
+
+def test_blended_cost_follows_the_route_mix():
+    assert sum(plans.ROUTE_MIX.values()) == pytest.approx(1.0)
+    assert plans.BLENDED_COST_PER_QUESTION_USD == pytest.approx(
+        plans.ROUTE_MIX["single"] * plans.COST_SINGLE_SPECIALIST_USD
+        + plans.ROUTE_MIX["dual"] * plans.COST_DUAL_SPECIALIST_USD
+        + plans.ROUTE_MIX["team"] * plans.COST_TEAM_USD,
+        abs=1e-4,
+    )
+    # A TEAM question must stay materially dearer than a single-specialist one,
+    # or the "we absorb route variance" argument has nothing to absorb.
+    assert plans.COST_TEAM_USD > plans.COST_SINGLE_SPECIALIST_USD * 3
+
+
+def test_projection_assumptions_are_stated_for_the_ui():
+    """The UI must be able to disclose what the projection assumes."""
+    text = pricing.PROJECTION_ASSUMPTIONS.lower()
+    assert "measured" in text and "token" in text
+    assert "tokenizer" in text          # names the main error source
+    assert "$0.00" in pricing.PROJECTION_ASSUMPTIONS  # actual spend disclosed

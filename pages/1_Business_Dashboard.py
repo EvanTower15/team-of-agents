@@ -75,10 +75,13 @@ st.caption(
 )
 
 st.info(
-    "**Coursework — nothing is charged.** Accounts, quota, overage, invoices, "
-    "and cost-to-serve are all real and computed from live data. The only "
-    "missing piece is a payment processor; invoices are written with "
-    "`status='simulated'`.",
+    f"**Modelled as a production deployment on {pricing.PRODUCTION_STACK_NAME}.** "
+    f"Token volumes are MEASURED on this proof-of-concept's free Groq tier; the "
+    f"rates applied to them are those of a near-frontier stack with no usage "
+    f"caps, because the free tier cannot host a paying customer. "
+    f"Cost figures are therefore **projected, not metered** — actual spend is "
+    f"$0.00 and nobody is charged. Accounts, quota, overage, and invoices are "
+    f"real; invoices carry `status='simulated'`.",
     icon="🎓",
 )
 
@@ -109,8 +112,11 @@ c8.metric("Usage share", f"{revenue['overage_share_pct']:.1f}%",
 
 st.subheader("Gross margin")
 st.caption(
-    "Cost to serve is metered, not estimated: Groq's reported token counts for "
-    "every call in the pipeline, priced per model."
+    f"Cost to serve is projected onto **{margin['production_stack']}** from "
+    f"token counts measured for every call in the pipeline. Blended cost is "
+    f"**${margin['blended_cost_per_question_usd']:.4f}/question** across the "
+    f"assumed route mix; plans are priced to clear "
+    f"**{margin['target_margin_pct']:.0f}%** at full quota use."
 )
 
 def _margin_label(pct: float, cost: float) -> str:
@@ -133,7 +139,55 @@ m3.metric("Gross margin", f"${margin['gross_margin_usd']:,.2f}")
 m4.metric(
     "Margin %",
     _margin_label(margin["gross_margin_pct"], margin["cost_to_serve_usd"]),
-    help="Revenue minus measured cost to serve, over revenue.",
+    help="Revenue minus projected cost to serve, over revenue.",
+)
+
+if margin.get("projection_multiplier"):
+    st.caption(
+        f"The same tokens on the free-tier gpt-oss models cost "
+        f"**${margin['actual_cost_usd']:.5f}** — the production stack is "
+        f"**{margin['projection_multiplier']}× dearer**. That multiplier is why "
+        f"the multi-agent architecture's token cost stops being a rounding error "
+        f"and becomes the dominant line item."
+    )
+
+# ── how the prices were derived ──────────────────────────────────────────────
+
+st.markdown("**Where the prices come from**")
+st.caption(
+    "Plan prices are derived from projected cost to serve at the margin target, "
+    "not chosen and then justified. Margin is computed at FULL quota use — the "
+    "worst case, since a subscriber who uses nothing is pure margin."
+)
+
+import pandas as pd
+
+_dp = pd.DataFrame(plans.derive_pricing())
+_dp["clears"] = _dp["clears_target"].map(
+    {True: "yes", False: "NO", None: "n/a (free)"}
+)
+st.dataframe(
+    _dp[["plan", "price_usd", "included", "cost_at_full_usd", "margin_pct",
+         "overage_margin_pct", "clears"]].rename(columns={
+        "plan": "Plan", "price_usd": "Price $", "included": "Included",
+        "cost_at_full_usd": "Cost at full quota $", "margin_pct": "Margin %",
+        "overage_margin_pct": "Overage margin %",
+        "clears": f"Clears {margin['target_margin_pct']:.0f}%",
+    }),
+    use_container_width=True, hide_index=True,
+    column_config={
+        "Price $": st.column_config.NumberColumn(format="$%.0f"),
+        "Cost at full quota $": st.column_config.NumberColumn(format="$%.2f"),
+        "Margin %": st.column_config.NumberColumn(format="%.1f%%"),
+        "Overage margin %": st.column_config.NumberColumn(format="%.1f%%"),
+    },
+)
+st.caption(
+    f"The proof-of-concept-era plan — $19/mo with 250 included questions — would "
+    f"cost **${250 * margin['blended_cost_per_question_usd']:.2f}** to serve on "
+    f"this stack, a **negative 32% margin** on every fully-utilised subscriber. "
+    f"Model choice determines what you must charge; that is what this table is "
+    f"for."
 )
 
 if margin["unpriced_calls"]:
@@ -184,11 +238,19 @@ if margin["by_route"]:
 
 # ── the constraint that actually binds ───────────────────────────────────────
 
-st.subheader("Capacity — the real constraint")
+st.subheader("Capacity — the proof-of-concept ceiling")
+st.info(
+    "**This section describes the free tier this demo runs on, not the "
+    "production stack priced above.** It is kept because it is the reason the "
+    "business case has to be argued against a paid stack at all: the free tier "
+    "is not a cheaper version of the product, it is one that cannot host a "
+    "single paying customer. A production deployment has no such cap — that is "
+    "precisely what the higher cost above is buying.",
+    icon="🧪",
+)
 st.caption(
-    "Token cost is not what limits this business; Groq's rate limits are. The "
-    "free tier imposes two token caps that constrain different things, and the "
-    "**daily** one binds far earlier than the per-minute one."
+    "The free tier imposes two token caps that constrain different things, and "
+    "the **daily** one binds far earlier than the per-minute one."
 )
 
 lat, vol = st.columns(2)
@@ -234,13 +296,17 @@ k2.metric(
 k3.metric("Revenue ceiling", f"${capacity['revenue_ceiling_usd_month']:,.0f}/mo")
 
 st.error(
-    f"**The free tier cannot host a single paying subscriber.** At "
+    f"**The entire free-tier account tops out at "
+    f"{capacity['recovery_subscribers_supported']} paying subscriber"
+    f"{'' if capacity['recovery_subscribers_supported'] == 1 else 's'} — "
+    f"${capacity['revenue_ceiling_usd_month']:,.0f}/month.** At "
     f"{capacity['tpd_limit']:,} tokens/day the whole account supports "
-    f"**{capacity['team_questions_per_month']:,} TEAM questions a month** — and "
+    f"**{capacity['team_questions_per_month']:,} TEAM questions a month**, and "
     f"one Recovery subscriber is promised "
-    f"{plans.PLANS['recovery'].included_questions}. Gross margin is >99%; it is "
-    f"irrelevant. **The constraint is supply, not price, and the fix is a Groq "
-    f"tier upgrade — a purchase order, not a rewrite.**",
+    f"{plans.PLANS['recovery'].included_questions}. "
+    f"**This is why the economics above are modelled on a paid stack: the "
+    f"constraint is supply, and lifting it is a purchase order, not a "
+    f"rewrite.**",
     icon="🚧",
 )
 st.caption(
@@ -338,9 +404,32 @@ if unattributed:
         )
 
 st.divider()
+st.subheader("How these numbers are produced")
+st.warning(pricing.PROJECTION_ASSUMPTIONS, icon="📐")
+
+_c1, _c2 = st.columns(2)
+with _c1:
+    st.markdown("**Measured — taken from the provider**")
+    st.caption(
+        "Token counts per call, latency, throttling, which stage made each "
+        "call, and actual Groq spend. Read from `llm_calls`, populated by "
+        "`src/telemetry.py` from Groq's own response metadata."
+    )
+with _c2:
+    st.markdown("**Modelled — computed from those measurements**")
+    st.caption(
+        f"Every dollar figure on this page. Measured tokens are re-priced onto "
+        f"{pricing.PRODUCTION_STACK_NAME}, tier for tier, keyed by the model "
+        f"that actually served each call. Plan prices are then derived from "
+        f"that cost at the {plans.TARGET_GROSS_MARGIN * 100:.0f}% margin target."
+    )
+
 st.caption(
     "Sources: `users` (accounts), `billing_events` (quota/usage), `invoices` "
-    "(simulated payments), `llm_calls` (metered tokens). "
-    f"Prices from `src/business/pricing.py`, verified {pricing.RATES_VERIFIED_ON} "
-    f"against {pricing.RATES_SOURCE}."
+    "(simulated payments), `llm_calls` (measured tokens). Free-tier rates "
+    f"verified {pricing.RATES_VERIFIED_ON} against {pricing.RATES_SOURCE}; "
+    f"production rates verified {pricing.PRODUCTION_RATES_VERIFIED_ON} against "
+    "anthropic.com. Sonnet 5's standard $3/$15 is used rather than its "
+    "introductory $2/$10, which expires 2026-08-31 — a business model that only "
+    "works on introductory pricing is not a business model."
 )

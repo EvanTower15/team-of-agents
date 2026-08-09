@@ -198,8 +198,43 @@ Cost to serve, at the verified gpt-oss rates (§0.2):
 | Single specialist | 11,564 | **$0.0024** | $0.12 | **~98%** |
 | TEAM (3 specialists) | 38,141 | **~$0.009** | $0.12 | **~93%** |
 
-**So token cost is not the constraint — and that is the point.** Groq's free tier imposes **two**
-token limits, and they cap different things. Keeping them straight matters, because modelling
+### ⭐ The headline: the same architecture is cheap or ruinous depending on the model under it
+
+The free tier is a **coursework choice**, not a product decision — and it cannot host a business
+(see the ceiling below). So the unit economics are modelled on a stack a startup would actually
+deploy: **Sonnet 5** ($3/$15) for specialists, **Haiku 4.5** ($1/$5) for orchestration — a
+tier-for-tier swap of the split we already have, applied to the **same measured token counts**.
+
+| | Free tier (actual) | Production (projected) |
+|---|---|---|
+| Single-specialist question | $0.0024 | **$0.052** |
+| TEAM question | $0.0092 | **$0.185** |
+| | | **≈ 20× dearer** |
+
+**Say this on stage:** *"On a free tier, our multi-agent design costs a fifth of a cent per
+question and nobody cares. On a production model it's 18 cents, and suddenly the fact that our
+constraint-extraction step costs almost as much as the consult it summarises is a line item we'd
+fight over. The architecture didn't change. The model under it did."*
+
+That forced a reprice. Plans are **derived** from cost at a 75% margin target, not picked:
+
+| Plan | Price | Included | Cost at full quota | Margin |
+|---|---|---|---|---|
+| Free | $0 | 10 | $1.01 | — |
+| Recovery | **$45/mo** | 100 | $10.06 | **77.6%** |
+| Clinic | **$225/mo** | 500 | $50.30 | **77.6%** |
+
+The old $19/mo plan with 250 included questions would run at **−32% margin** on this stack.
+Still cheaper than one $150 PT visit; Clinic works out to $45/provider/month.
+
+> **Honesty line, say it before someone asks:** token counts are measured, the rates are modelled.
+> Different models tokenize differently and spend different amounts on reasoning, so these are
+> projections accurate to roughly ±20–30%, not metered bills. The app says so on every screen.
+
+---
+
+**And on the free tier we actually run, token cost is not the constraint at all.** Groq imposes
+**two** token limits that cap different things. Keeping them straight matters, because modelling
 capacity from the per-minute limit alone overstates it by **~58×**:
 
 | Limit | What it constrains | Effect |
@@ -212,17 +247,17 @@ Run the daily cap out to a month:
 | | |
 |---|---|
 | TEAM questions / month (entire account) | **157** |
-| Recovery subscribers supportable (250 questions each) | **0** |
-| Revenue ceiling | **$0 / month** |
-| Same figure if every question woke only ONE specialist | **2 subscribers** |
+| Recovery subscribers supportable (100 questions each) | **1** |
+| Revenue ceiling | **$45 / month** |
+| Same figure if every question woke only ONE specialist | **5 subscribers** |
 
-**The free tier cannot host a single paying customer.** One subscriber is promised 250 questions
-a month; the whole account has 157.
+**The entire free-tier account tops out at one paying subscriber — $45/month.** One subscriber is
+promised 100 questions a month; the whole account has 157.
 
-**The line to say on stage:** *"Our gross margin is over 99%, and it is completely irrelevant. On
-the free tier the entire account supports 157 team questions a month, and one subscriber is
-promised 250 — so we can host zero paying customers. The constraint isn't the price of a token,
-it's how many tokens Groq will sell us in a day. That's a purchase order, not a rewrite."*
+**The line to say on stage:** *"On the free tier the entire account supports 157 team questions a
+month — that's one customer and $45 of revenue, for the whole company. That's not a margin
+problem, it's a supply problem, and the fix is a purchase order rather than a rewrite. Which is
+exactly why we modelled the business on a paid stack instead."*
 
 > ⚠️ **Do not quote a per-minute-derived capacity number.** An earlier draft of this section said
 > "~36 subscribers, $684/mo" by modelling TPM only — that assumes sustaining 8,000 tok/min for a
@@ -1274,7 +1309,8 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
 | Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com: `gpt-oss-120b` **$0.15/1M in · $0.60/1M out**; `gpt-oss-20b` **$0.075/1M in · $0.30/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code (`src/business/pricing.py` is now the only place a price lives) |
 | **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM — against $0.12/question overage, i.e. **~98% gross margin**. Cost is NOT the constraint |
-| **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month**, so **0 Recovery subscribers** (each promised 250). A TPM-only model overstates capacity ~58× — do not use one |
+| **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month for the whole account** = **1 Recovery subscriber, $45/mo ceiling**. A TPM-only model overstates capacity ~58× — do not use one |
+| **Production stack (D35)** ✱ | Economics are modelled on **Sonnet 5** ($3/$15) specialists + **Haiku 4.5** ($1/$5) orchestration, applied to measured token counts. TEAM question **$0.0092 → $0.185 (~20×)**. Plans re-derived at a 75% margin target: **Free $0/10, Recovery $45/100, Clinic $225/500** (both paid clear 77.6%). The old $19/250 plan would run at **−32% margin**. Projected, not metered — ±20–30%, disclosed on every screen |
 | Monetization ✱ | Accounts (scrypt, stdlib), Free/Recovery $19/Clinic $99 with overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |

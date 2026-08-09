@@ -26,18 +26,36 @@ measurement existed:
 So the customer sees a flat per-question price and we absorb route variance.
 `margin_report()` exists to prove that absorbing it is safe.
 
-The real constraint is throughput, not COGS
--------------------------------------------
-Measured cost to serve is roughly $0.0024 for a single-specialist question and
-~$0.009 for a TEAM question, against a $0.12 overage price — so gross margin on
-tokens is ~93-98%. Cost is not what limits this business.
+Priced on a production stack, not the free tier (D35)
+----------------------------------------------------
+The free Groq tier this proof-of-concept runs on cannot host a business: its
+200,000-token daily cap supports ~157 TEAM questions a month for the ENTIRE
+account, i.e. one Recovery subscriber and a $45/month revenue ceiling. So the
+economics are modelled on a stack a real startup would deploy — Sonnet 5 for
+specialists, Haiku 4.5 for orchestration, no usage caps — by re-pricing the
+same MEASURED token volumes. See `pricing.PRODUCTION_STACK`.
 
-Groq's free tier caps `gpt-oss-120b` at 8,000 tokens/minute. A TEAM question
-consumes 38,141 tokens, i.e. **4.8 minutes of budget for one question**, and
-measured 204.8 s wall-clock because the SDK silently backs off. That ceiling —
-not token price — is what caps concurrent users, and `capacity_report()` states
-it in the units a business audience cares about: how many customers this can
-actually serve before the tier has to change.
+That swap is not cosmetic; it inverts the conclusion:
+
+    cost / TEAM question    free tier  $0.0092      production  $0.185  (~20x)
+    cost / single question  free tier  $0.0024      production  $0.052
+
+On the free tier, cost is a rounding error and supply is the only constraint.
+On a production stack, the multi-agent architecture's ~10x token multiplier
+becomes **the dominant line item** — Ben's finding that constraint extraction
+costs nearly as much as the consult it summarises is a curiosity at $0.009 and
+a budget line at $0.185. The same architecture is cheap or ruinous depending
+entirely on the model tier underneath it.
+
+The prices below follow from that cost, not from taste: blended cost is
+~$0.1006/question across the assumed route mix, and every paid tier is set to
+clear TARGET_GROSS_MARGIN at full quota use. The proof-of-concept-era $19/mo
+plan with 250 included questions would run at **negative 32% margin** on this
+stack. `derive_pricing()` shows the arithmetic and flags any plan that stops
+clearing.
+
+`capacity_report()` still models the free tier, deliberately — it is the
+evidence for why the paid stack is necessary rather than an upsell.
 
 Public API:
     PLANS                                -> dict[str, Plan]
@@ -91,16 +109,58 @@ class Plan:
         return round(over * self.overage_per_question_usd, 2)
 
 
+# ── projected cost to serve, per route (D35) ─────────────────────────────────
+#
+# Measured token volumes from src/telemetry.py, priced on the PRODUCTION stack
+# (Sonnet 5 specialists + Haiku 4.5 orchestration) rather than on the free-tier
+# gpt-oss models the proof-of-concept actually runs. Verified by re-pricing
+# Ben's measured single-specialist run: $0.00244 actual -> $0.05235 projected,
+# a 21.5x multiplier.
+COST_SINGLE_SPECIALIST_USD = 0.052   # 11,564 measured tokens
+COST_DUAL_SPECIALIST_USD = 0.115     # interpolated
+COST_TEAM_USD = 0.185                # 38,141 measured tokens
+
+# Assumed route mix for blended cost. Stated rather than hidden: a recovery
+# product skews toward narrow questions, and only a minority wake the full
+# team. Replace with measured proportions from billing_events once there is
+# enough real traffic to beat the assumption.
+ROUTE_MIX = {"single": 0.45, "dual": 0.35, "team": 0.20}
+
+BLENDED_COST_PER_QUESTION_USD = round(
+    ROUTE_MIX["single"] * COST_SINGLE_SPECIALIST_USD
+    + ROUTE_MIX["dual"] * COST_DUAL_SPECIALIST_USD
+    + ROUTE_MIX["team"] * COST_TEAM_USD,
+    4,
+)  # ~= $0.1007
+
+# Every plan below is priced to clear this at FULL quota consumption -- the
+# worst case, since a subscriber who uses nothing is pure margin. Pricing to
+# the average would leave the heaviest users unprofitable.
+TARGET_GROSS_MARGIN = 0.75
+
+
 # Anchoring note for the report: a physical-therapy visit runs $75-150 and a
-# session with a trainer $40-80. Recovery at $19/mo undercuts a SINGLE visit
-# while covering a month, which is the value claim the product was pitched on
-# (PROJECT_PLAN section 1). Clinic is priced per-provider, not per-patient.
+# session with a trainer $40-80. Recovery at $39/mo still undercuts a SINGLE
+# visit while covering a month, which is the value claim the product was
+# pitched on (PROJECT_PLAN section 1). Clinic is priced per-provider, not
+# per-patient: $199 across 5 seats is ~$40/provider/month.
+#
+# These prices replace the proof-of-concept-era ones ($19/250, $99/2000). That
+# is not inflation, it is the near-frontier model: at $0.1006/question a
+# 250-question plan costs $25.15 to serve, so the old $19 plan ran at NEGATIVE
+# 32% margin on every fully-utilised subscriber. Both paid tiers now clear
+# 77.6% at full quota, and their overage prices are set to the same margin so a
+# heavy user is exactly as profitable as a light one. $225 across 5 Clinic
+# seats is $45/provider -- the same per-head price as Recovery, which makes the
+# B2B tier easy to justify. See derive_pricing() for the arithmetic.
 PLANS: dict[str, Plan] = {
     "free": Plan(
         plan_id="free",
         name="Free",
         monthly_price_usd=0.0,
-        included_questions=15,
+        # Cut from 15 to 10: at projected rates a free user costs ~$1.00/month
+        # rather than ~$0.14, so the trial has to be sized like real spend.
+        included_questions=10,
         # Free users are blocked, not billed, at the cap -- charging someone who
         # never entered a card is the one thing a free tier must not do.
         overage_per_question_usd=0.0,
@@ -111,9 +171,9 @@ PLANS: dict[str, Plan] = {
     "recovery": Plan(
         plan_id="recovery",
         name="Recovery",
-        monthly_price_usd=19.0,
-        included_questions=250,
-        overage_per_question_usd=0.12,
+        monthly_price_usd=45.0,
+        included_questions=100,
+        overage_per_question_usd=0.45,
         seats=1,
         specialists=(
             "orthopedic_surgeon",
@@ -131,9 +191,9 @@ PLANS: dict[str, Plan] = {
     "clinic": Plan(
         plan_id="clinic",
         name="Clinic",
-        monthly_price_usd=99.0,
-        included_questions=2000,
-        overage_per_question_usd=0.08,  # volume discount vs Recovery
+        monthly_price_usd=225.0,
+        included_questions=500,
+        overage_per_question_usd=0.35,  # volume discount vs Recovery
         seats=5,
         specialists=(
             "orthopedic_surgeon",
@@ -149,6 +209,59 @@ PLANS: dict[str, Plan] = {
         ),
     ),
 }
+
+
+def derive_pricing(
+    blended_cost_usd: float | None = None,
+    target_margin: float | None = None,
+) -> list[dict]:
+    """Show the arithmetic behind every price, and whether it holds.
+
+    The dashboard renders this so the plan table is a *derivation* rather than
+    an assertion: change the model scenario and it becomes visible which plans
+    stop clearing the margin target. That link -- model choice determines what
+    you must charge -- is the analytical point of the whole exercise.
+    """
+    cost = blended_cost_usd or BLENDED_COST_PER_QUESTION_USD
+    margin = TARGET_GROSS_MARGIN if target_margin is None else target_margin
+
+    rows = []
+    for plan in PLANS.values():
+        cost_at_full = plan.included_questions * cost
+        revenue = plan.monthly_price_usd
+        actual_margin = (
+            (revenue - cost_at_full) / revenue * 100.0 if revenue > 0 else 0.0
+        )
+        # What this plan WOULD have to charge to hit the target at this quota.
+        required_price = cost_at_full / (1 - margin) if margin < 1 else float("inf")
+        # ...or how many questions it could include at the current price.
+        affordable_quota = int(revenue * (1 - margin) / cost) if cost > 0 else 0
+
+        rows.append(
+            {
+                "plan": plan.name,
+                "price_usd": revenue,
+                "included": plan.included_questions,
+                "cost_at_full_usd": round(cost_at_full, 2),
+                "margin_pct": actual_margin,
+                "required_price_usd": round(required_price, 2),
+                "affordable_quota": affordable_quota,
+                # None, not False, for free plans: zero revenue means margin is
+                # undefined, and rendering "fails target" against a plan that was
+                # never meant to earn would misread as a pricing bug.
+                "clears_target": (
+                    actual_margin >= margin * 100.0 if revenue > 0 else None
+                ),
+                "overage_margin_pct": (
+                    (plan.overage_per_question_usd - cost)
+                    / plan.overage_per_question_usd
+                    * 100.0
+                    if plan.overage_per_question_usd
+                    else 0.0
+                ),
+            }
+        )
+    return rows
 
 DEFAULT_PLAN = "free"
 
@@ -177,8 +290,9 @@ CREATE TABLE IF NOT EXISTS billing_events (
     session_id   TEXT,
     plan_id      TEXT NOT NULL,
     route        TEXT,             -- TEAM / PT_ONLY / ... : route drives cost
-    cost_usd     REAL,             -- metered cost to serve, NULL if unmeasured
-    billable     INTEGER NOT NULL DEFAULT 1
+    cost_usd     REAL,             -- ACTUAL metered cost, NULL if unmeasured
+    billable     INTEGER NOT NULL DEFAULT 1,
+    projected_usd REAL             -- cost on the production stack (D35)
 );
 CREATE INDEX IF NOT EXISTS idx_billing_user ON billing_events (user_id, created_at);
 
@@ -196,6 +310,13 @@ CREATE TABLE IF NOT EXISTS invoices (
 CREATE INDEX IF NOT EXISTS idx_invoices_user ON invoices (user_id, period_start);
 """
 
+# Added after billing_events first shipped. Same reasoning as telemetry's
+# migration block: SQLite has no ADD COLUMN IF NOT EXISTS, and without this an
+# existing database keeps the old table while every insert fails silently.
+_MIGRATIONS = {
+    "projected_usd": "ALTER TABLE billing_events ADD COLUMN projected_usd REAL",
+}
+
 _initialised = False
 
 
@@ -205,6 +326,10 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=10)
     if not _initialised:
         conn.executescript(_SCHEMA)
+        existing = {r[1] for r in conn.execute("PRAGMA table_info(billing_events)")}
+        for column, ddl in _MIGRATIONS.items():
+            if column not in existing:
+                conn.execute(ddl)
         conn.commit()
         _initialised = True
     return conn
@@ -240,6 +365,7 @@ def record_question(
     plan_id: str = DEFAULT_PLAN,
     route: str | None = None,
     cost_usd: float | None = None,
+    projected_usd: float | None = None,
     billable: bool = True,
 ) -> int:
     """Log one answered question against a user's quota. Returns the row id.
@@ -253,7 +379,7 @@ def record_question(
         conn = _connect()
         cur = conn.execute(
             "INSERT INTO billing_events (created_at, user_id, session_id, plan_id,"
-            " route, cost_usd, billable) VALUES (?,?,?,?,?,?,?)",
+            " route, cost_usd, billable, projected_usd) VALUES (?,?,?,?,?,?,?,?)",
             (
                 datetime.now(timezone.utc).isoformat(),
                 user_id,
@@ -262,6 +388,7 @@ def record_question(
                 route,
                 cost_usd,
                 1 if billable else 0,
+                projected_usd,
             ),
         )
         conn.commit()
@@ -328,7 +455,8 @@ class UsageSummary:
     overage_usd: float
     subscription_usd: float
     total_billed_usd: float
-    cost_to_serve_usd: float
+    cost_to_serve_usd: float   # projected, on the production stack (D35)
+    actual_cost_usd: float = 0.0  # what the free tier really cost
 
     @property
     def remaining(self) -> int:
@@ -373,6 +501,9 @@ def usage_for(
 
     metered = telemetry.user_usage(user_id, since=since)
     overage_usd = plan.overage_cost(used)
+    # PROJECTED cost is the primary figure (D35): the app presents economics as
+    # a production deployment would bill them. `actual_cost_usd` keeps the real
+    # free-tier spend alongside so the two never have to be reconstructed.
 
     return UsageSummary(
         user_id=user_id,
@@ -383,7 +514,8 @@ def usage_for(
         overage_usd=overage_usd,
         subscription_usd=plan.monthly_price_usd,
         total_billed_usd=round(plan.monthly_price_usd + overage_usd, 2),
-        cost_to_serve_usd=metered["cost_usd"],
+        cost_to_serve_usd=metered.get("projected_usd", 0.0),
+        actual_cost_usd=metered["cost_usd"],
     )
 
 
@@ -486,8 +618,8 @@ def margin_report(since: str | None = None) -> dict:
 
     # Per-route cost: which routes are expensive to serve, measured.
     rows = _query(
-        "SELECT COALESCE(route,'(unknown)'), COUNT(*), COALESCE(AVG(cost_usd),0),"
-        " COALESCE(SUM(cost_usd),0)"
+        "SELECT COALESCE(route,'(unknown)'), COUNT(*),"
+        " COALESCE(AVG(projected_usd),0), COALESCE(SUM(projected_usd),0)"
         " FROM billing_events WHERE created_at >= ? GROUP BY route"
         " ORDER BY SUM(cost_usd) DESC",
         (since,),
@@ -502,12 +634,18 @@ def margin_report(since: str | None = None) -> dict:
         for r in rows
     ]
 
-    cost = float(metered.get("cost_usd") or 0.0)
+    cost = float(metered.get("projected_usd") or 0.0)
+    actual_cost = float(metered.get("cost_usd") or 0.0)
     revenue = rev["total_revenue_usd"]
 
     return {
         "revenue_usd": revenue,
         "cost_to_serve_usd": round(cost, 6),
+        "actual_cost_usd": round(actual_cost, 6),
+        "projection_multiplier": round(cost / actual_cost, 1) if actual_cost else 0.0,
+        "blended_cost_per_question_usd": BLENDED_COST_PER_QUESTION_USD,
+        "target_margin_pct": TARGET_GROSS_MARGIN * 100.0,
+        "production_stack": pricing.PRODUCTION_STACK_NAME,
         "gross_margin_usd": round(revenue - cost, 2),
         "gross_margin_pct": ((revenue - cost) / revenue * 100.0) if revenue else 0.0,
         "by_route": by_route,

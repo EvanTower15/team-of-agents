@@ -375,7 +375,13 @@ def _cost_meta(before: dict, after: dict) -> dict:
             "output_tokens": 0,
             "total_tokens": max(0, after["tokens"] - before["tokens"]),
         },
+        # `cost_usd` is what Groq actually charged; `projected_usd` is the same
+        # measured tokens priced on the production stack (D35). Both are kept:
+        # the first is a historical fact, the second is what the app displays.
         "cost_usd": max(0.0, after["cost_usd"] - before["cost_usd"]),
+        "projected_usd": max(
+            0.0, after.get("projected_usd", 0.0) - before.get("projected_usd", 0.0)
+        ),
         "llm_calls": max(0, after["calls"] - before["calls"]),
     }
 
@@ -576,19 +582,21 @@ with st.sidebar:
             from src.business.unit_economics import VerticalStrategyMetrics
 
             _sc = telemetry.session_cost(_sid) if _sid else {
-                "calls": 0, "tokens": 0, "cost_usd": 0.0
+                "calls": 0, "tokens": 0, "cost_usd": 0.0, "projected_usd": 0.0
             }
             if _sc["calls"]:
                 st.caption(
-                    f"Measured from Groq's own token counts · rates verified "
-                    f"{plans.pricing.RATES_VERIFIED_ON}"
+                    f"Billed at production rates "
+                    f"(**{plans.pricing.PRODUCTION_STACK_NAME}**). Token counts "
+                    f"are measured; the rates are modelled — see the note at the "
+                    f"bottom of the page."
                 )
                 st.markdown(
                     f"**{_sc['calls']} model calls · {_sc['tokens']:,} tokens · "
-                    f"${_sc['cost_usd']:.5f}**"
+                    f"${_sc['projected_usd']:.4f}**"
                 )
                 _turns = session_stats(_sid)["turns"] or 1
-                _per_q = _sc["cost_usd"] / _turns
+                _per_q = _sc["projected_usd"] / _turns
                 st.caption(f"- Cost to serve per question: ${_per_q:.5f}")
                 if _per_q > 0:
                     roi = VerticalStrategyMetrics.calculate_roi_versus_human_care(
@@ -610,6 +618,20 @@ with st.sidebar:
                 st.caption("No model calls recorded for this conversation yet.")
         except Exception as exc:
             st.caption(f"(unit economics unavailable: {exc})")
+
+    # Persistent, always-visible disclosure. The app deliberately presents
+    # itself as though it were really billing at production rates (D35); this
+    # is the one place that says plainly that it is not, so the immersion never
+    # costs a viewer an accurate understanding.
+    st.divider()
+    st.caption(
+        f"💡 **Pricing model:** costs shown are modelled on "
+        f"**{plans.pricing.PRODUCTION_STACK_NAME}**, applied to token volumes "
+        f"measured on this proof-of-concept's free Groq tier. "
+        f"**Actual spend: $0.00 — nobody is charged.**"
+    )
+    with st.expander("How the projected costs are calculated"):
+        st.caption(plans.pricing.PROJECTION_ASSUMPTIONS)
 
 st.title("Recovery Team")
 st.caption(
@@ -802,6 +824,7 @@ if question:
         plan_id=CURRENT_USER.plan_id,
         route=result["route"],
         cost_usd=cost_meta["cost_usd"],
+        projected_usd=cost_meta["projected_usd"],
         billable=result["route"] != "RED_FLAG",
     )
 

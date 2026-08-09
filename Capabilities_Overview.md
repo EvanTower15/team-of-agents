@@ -699,19 +699,49 @@ orchestrator decided their question needed the surgeon. RED_FLAG answers are non
 they short-circuit on regex before any specialist runs (D5), so they cost nothing, and
 charging for being told to seek emergency care is indefensible.
 
-**The finding that matters commercially: cost is not the constraint, supply is.**
-Measured cost to serve is $0.0024 (single specialist) to ~$0.009 (TEAM) against a $0.12
-overage price — over **99% gross margin**. It is irrelevant, because Groq's free tier
-imposes two token limits that cap different things:
+**Economics are modelled on a production stack, not the free tier (D35).** The free Groq
+tier is a coursework choice; the section below shows it supports ~157 TEAM questions a
+month for the entire account. Arguing unit economics on it would describe a business that
+cannot exist. So the same **measured** token volumes are re-priced tier-for-tier onto a
+stack with no usage caps — **Sonnet 5** ($3/$15) for specialists, **Haiku 4.5** ($1/$5)
+for orchestration — keyed by the model that actually served each call.
+
+| | Free tier (actual) | Production (projected) |
+|---|---|---|
+| Single-specialist question | $0.0024 | **$0.052** |
+| TEAM question | $0.0092 | **$0.185** (~20×) |
+
+**That 20× inverts the conclusion.** On the free tier the multi-agent architecture's ~10×
+token multiplier is economically invisible and supply is the only constraint. On a
+production stack it is **the dominant line item** — the measured fact that constraint
+extraction costs nearly as much as the consult it summarises becomes a budget decision
+rather than trivia. The same architecture is cheap or ruinous depending entirely on the
+model tier beneath it.
+
+Plans are *derived* from that cost at a 75% margin target, not chosen then justified:
+**Free $0/10 questions, Recovery $45/mo/100, Clinic $225/mo/500**, both paid tiers
+clearing 77.6% at full quota use (the worst case — an idle subscriber is pure margin).
+The proof-of-concept-era $19/mo/250 plan would run at **−32% margin** here.
+
+⚠️ **Projected, not metered.** Token counts are measured; the rates applied to them are
+modelled. Token counts are not model-invariant — different tokenizers, different
+reasoning-token spend, different answer lengths — so treat projections as ±20–30%. Both
+the app and the dashboard disclose this persistently rather than in a footnote. Actual
+cost is still stored per row at insert (a historical fact); the projection is computed at
+read time (a model output that must re-derive when the scenario changes).
+
+**Why a paid stack is necessary at all — the free-tier ceiling.**
+Groq's free tier imposes two token limits that cap different things:
 
 | Limit | Constrains | Consequence |
 |---|---|---|
 | **8,000 tokens/minute** | Latency of *one* question | A TEAM question is 38,141 tokens = **4.8 minutes of the whole account's budget**, so Groq stalls it — 204.8 s measured, with zero 429s |
 | **200,000 tokens/day** ⟵ **binding** | Total *volume* | **~5.2 TEAM questions/day → 157/month** for the entire account |
 
-One Recovery subscriber is promised 250 questions a month, so **the free tier cannot host a
-single paying customer** (~2 if every question woke only one specialist). Lifting it is a
-Groq tier change, not an architecture change.
+One Recovery subscriber is promised 100 questions a month, so **the entire free-tier
+account tops out at 1 paying subscriber — a $45/month revenue ceiling** (~5 if every
+question woke only one specialist). Lifting it is a Groq tier change, not an architecture
+change, which is exactly what the production stack above buys.
 
 ⚠️ Capacity must be modelled from the **daily** cap. Deriving it from tokens-per-minute
 assumes sustaining 8,000 tok/min for a month (~350M tokens) when the daily cap allows 6M —
