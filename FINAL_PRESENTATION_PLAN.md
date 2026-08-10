@@ -79,11 +79,8 @@ Migrated 2026-08-07 (D27):
 | Routing, planning, compliance check | `openai/gpt-oss-20b` (`reasoning_effort="low"`) |
 | User photo description only | Google `gemini-flash-latest` — the one non-Groq call ✱ |
 
-Two things follow that the deck must reflect:
+**Groq `gpt-oss-120b` pricing (per groq.com):** Standard Input: **$0.150** per 1M tokens · Cached Input: **$0.075** per 1M tokens · Output: **$0.600** per 1M tokens. (Replaces the old Llama-3.3-70B $0.59/$0.79 rate).
 
-- **The token pricing on the old slide 13 ($0.59/$0.79 per 1M) was Llama-3.3-70B pricing and no
-  longer applies.** Do not reuse it. Look up current gpt-oss pricing at console.groq.com and put
-  the real number in, or leave it blank — **do not carry the old number forward.**
 - **gpt-oss models emit reasoning tokens before content.** They cost more per call than the model
   they replaced. Anything setting `max_tokens` must leave headroom or `content` comes back empty.
 
@@ -682,7 +679,7 @@ Four capabilities layered on the core system. One line each — do not deep-dive
   `Contraindication`) joined by typed edges, enabling multi-hop reasoning vector similarity cannot
   reach. **⚠️ Check 0.1(b) before claiming Kùzu — it currently falls back to in-memory data.**
 - **Security guardrails** — prompt-injection / jailbreak / SQL-injection scanning and PII redaction,
-  with a red-team suite. **Currently on the CLI path, not the Streamlit app.**
+  with a red-team suite. **Currently on the CLI path, not the Streamlit app.** Note on slide 11/12: LLM Guard negatively affected retrieval in Streamlit. The presenter can point out (or PPT readers conclude) that LLM Guard works in the CLI path, but not in Streamlit — because integrating `llm-guard` required downgrading `transformers` (5.14.1 → 4.51.3), which broke `sentence-transformers` and with it all four agents' retrieval and CLIP image search.
 
 **Speaker note:** Volunteer the two wiring caveats rather than waiting to be caught. In this room
 that buys more credibility than it costs.
@@ -801,9 +798,10 @@ When it runs out the client backs off silently, and the app looks frozen. We hit
 > found that by watching our own demo hang. The fix is a paid tier; the lesson is that for a
 > multi-agent system the binding constraint is throughput, not price."
 
-**Still open:** dollar cost per route (gpt-oss pricing not yet confirmed — see 0.2) and the
-human-consult ROI comparison ($150–$350/hr). Leave those two as `— TBD —`; everything else on this
-slide is real.
+**Dollar cost per route (Groq `gpt-oss-120b` @ $0.150/1M standard in, $0.075/1M cached in, $0.600/1M out):**
+- Single-specialist (~11,564 tokens: ~8k in / 3.5k out): **~$0.0033** (~0.33 cents).
+- 3-specialist TEAM (~38,141 tokens: ~28k in / 10k out): **~$0.0102** (~1.02 cents).
+- Human consult equivalent: $150–$350/hr vs. ~$0.01 per AI team consult.
 
 ---
 
@@ -1209,7 +1207,7 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
-| Token pricing | **⚠️ UNVERIFIED for gpt-oss — the old $0.59/$0.79 was Llama-3.3-70B. Look it up.** ✱ |
+| Token pricing | **Groq `gpt-oss-120b`:** Standard Input: $0.150/1M · Cached Input: $0.075/1M · Output: $0.600/1M (per groq.com) ✱ |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
 | Plan bounds ✱ | `MAX_PLAN_LENGTH = 4`, de-duplicated, sanitized against hallucinated agent names |
@@ -1238,7 +1236,7 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 - [x] ~~Verify all four Chroma collections are non-empty~~ — done: PT 1,050 · trainer 536 ·
       nutrition 179 · surgeon 121 = **1,886**. Still re-check the morning of; `pt_docs` vanished once.
 - [ ] **`pip install kuzu`** or correct slide 11's GraphRAG claim.
-- [ ] **Look up current gpt-oss token pricing** — the deck must not carry the Llama-3.3 numbers.
+- [x] ~~Look up current gpt-oss token pricing~~ — **Groq `gpt-oss-120b`:** Standard Input: $0.150/1M, Cached Input: $0.075/1M, Output: $0.600/1M (per groq.com).
 - [ ] **Re-run the 15-question routing battery** on the new model + planner, or present it as
       "verified in July on the previous model." Budget the tokens.
 - [ ] **Re-run the high-risk scenario suite** now that the judge no longer fails open — then decide
