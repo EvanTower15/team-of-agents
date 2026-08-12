@@ -39,8 +39,13 @@ python -m src.ingest --agent surgeon
 python -m src.ingest --agent nutrition
 
 # Launch Streamlit web interface
-streamlit run app.py
+python -m streamlit run app.py
 ```
+
+> **Use `python -m streamlit`, not bare `streamlit`.** If you installed with `pip install
+> --user`, the `streamlit.exe` launcher lands in a user Scripts directory that is usually
+> **not** on PATH, and `streamlit run app.py` fails with "term not recognized". The `python
+> -m` form finds the package directly and works either way.
 
 ### Signing in
 
@@ -48,8 +53,8 @@ The app requires an account. Demo accounts are seeded automatically on first lau
 
 | Email | Password | What it shows |
 |---|---|---|
-| `demo@recoveryteam.app` | `recovery2026` | Free plan — 15 questions/month, 2 specialists, hits the upgrade wall |
-| `paid@recoveryteam.app` | `recovery2026` | Recovery plan — all 4 specialists, 250 questions, then metered overage |
+| `demo@recoveryteam.app` | `recovery2026` | Free plan — 10 questions/month, 2 specialists, hits the upgrade wall |
+| `paid@recoveryteam.app` | `recovery2026` | Recovery plan — all 4 specialists, 100 questions, then metered overage |
 | `admin@recoveryteam.app` | `recovery2026` | Admin — adds the **📈 Business console** page (MRR, margin, capacity) |
 
 You can also create your own account; new accounts start on Free.
@@ -63,7 +68,18 @@ Two views over the same metered data, for two audiences:
 - **📊 Observability tab** (everyone) — real per-call token counts, latency, and throttling by pipeline stage.
 - **📈 Business console** (admin only) — revenue, per-route gross margin, and the capacity ceiling.
 
-Prices live in one place, `src/business/pricing.py`, verified against Groq's published rates.
+Prices live in one place, `src/business/pricing.py`, verified against published rates.
+
+**Costs shown in the app are projected, not metered.** Token counts are measured from the
+provider's own response metadata, but they are priced on the stack this would run on as a
+real product — Sonnet 5 for specialists, Haiku 4.5 for orchestration — because the free
+Groq tier the demo uses supports only ~157 team questions a month for the entire account
+and cannot host a paying customer. Token counts are not model-invariant, so treat
+projections as ±20–30%. Actual spend on the free tier is $0.00. Both the app and the
+console disclose this on screen.
+
+Plan prices are *derived* from that cost at a 75% gross-margin target rather than picked;
+`plans.derive_pricing()` shows the arithmetic and a test fails if a plan stops clearing.
 
 ## E2E CLI & Automated Test Suite
 

@@ -257,8 +257,9 @@ Two halves, both as **big numbers**, not paragraphs.
 - Groq `gpt-oss-120b` metered per call from the provider's own token counts:
   **$0.15 / 1M input**, **$0.60 / 1M output** (`gpt-oss-20b`: $0.075 / $0.30)
 - **Measured, not estimated:** a single-specialist question is **11,564 tokens across 6
-  calls** ($0.0024); a TEAM question **38,141 tokens across 14** (~$0.009). Against $0.12
-  per question that is **~98% gross margin**
+  calls**; a TEAM question **38,141 tokens across 14**. On the free tier that is $0.0024
+  and ~$0.009 — but the business is priced on a **production stack** (Sonnet 5 + Haiku
+  4.5), where the same measured tokens cost **$0.052** and **$0.185**, about **20× more**
 - **The constraint is supply, not cost.** Two free-tier caps: **8,000 tok/min** makes one
   TEAM question eat **4.8 minutes** of the account's budget (the stall you'll see live),
   and **200,000 tok/day** allows only **~5 TEAM questions a day → 157/month** — the whole

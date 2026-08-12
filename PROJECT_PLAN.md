@@ -26,8 +26,10 @@
 >    price change cannot retroactively rewrite last month's reported margin.
 > 2. **Accounts, plans, and quota (D34).** scrypt via stdlib `hashlib` — no new dependency,
 >    because this project already had to reject `llm-guard` for downgrading `transformers`.
->    Hybrid revenue model: Free (15 questions, hard stop) / Recovery ($19, 250 then $0.12) /
->    Clinic ($99, 2,000 then $0.08). **Billing is per question, not per token**, because a
+>    Hybrid revenue model: Free (hard stop) / Recovery / Clinic, each subscription plus
+>    metered overage. *(Prices were re-derived in D35 once economics moved to a production
+>    stack — see point 4 for the current numbers; the D34-era $19/250 and $99/2,000 tiers
+>    would run at negative margin there.)* **Billing is per question, not per token**, because a
 >    TEAM question costs ~3.3× a single-specialist one and the *planner* picks the route,
 >    not the patient (D28) — billing per token would charge someone more because our
 >    orchestrator decided their question needed the surgeon. RED_FLAG is non-billable.
@@ -925,6 +927,87 @@ a dict in exactly the shape its renderer already expects.
 
 ---
 
+### 5.6 `src/auth.py` (Phase 7, D34) — accounts, passwords, roles
+
+Adds a `users` table on `database.py`'s SQLAlchemy `Base`, so accounts live in the same
+SQLite file as conversations and telemetry and a per-user cost query is a plain join.
+
+```python
+init_auth(db_url=None) -> Engine        # idempotent; creates users + migrates chat_sessions
+hash_password(pw) -> str                # "scrypt$n$r$p$salt_b64$key_b64"
+verify_password(pw, stored) -> bool     # constant-time; never raises on malformed input
+create_user(email, pw, *, display_name=None, role="user", plan_id="free") -> User
+authenticate(email, pw) -> User | None  # None for BOTH bad password and no such account
+get_user(user_id) / get_user_by_email(email) -> User | None
+list_users() -> list[User]
+set_plan(user_id, plan_id) -> bool  /  set_role(user_id, role) -> bool
+seed_demo_users() -> list[tuple[str, str, str]]     # idempotent
+```
+
+**Contract notes that will bite if ignored:**
+
+- Every function takes `db_url: str | None = None` and resolves it **at call time** via
+  `_url()`. Do not "simplify" these to `db_url: str = DEFAULT_DB_URL` — Python binds
+  default arguments once at `def` time, so the eager form silently ignores any
+  reassignment of `DEFAULT_DB_URL` and keeps reading the real database. That broke
+  `plans.revenue_report()` in tests, since it calls `list_users()` with no arguments.
+- `authenticate()` deliberately does not distinguish "no such account" from "wrong
+  password", and verifies against a dummy hash when the account is missing so absence is
+  not detectable by response latency. Keep both properties.
+- **Scope is honest and limited** (see `src/auth.py`'s docstring): real salted scrypt
+  hashing and constant-time comparison, but no email verification, no password reset, no
+  login rate limiting, and no session tokens. Do not describe this as production auth.
+
+`chat_sessions` gains a nullable `user_id`. Nullable because conversations predate
+accounts (D31): rows written before login shipped stay unowned and are listed for nobody,
+which is the safe direction. `database.owns_session(user_id, session_id)` is the
+ownership check `app.py` runs before opening or deleting a conversation.
+
+### 5.7 `src/business/` (Phase 7, D32/D34/D35) — pricing, plans, billing
+
+Three modules with one rule between them: **`pricing.py` is the only place a model rate
+lives.** `unit_economics.py` derives from it rather than holding a second copy — the bug
+that motivated this layer was two independent price tables drifting apart.
+
+```python
+# pricing.py — rates and projection
+price_call(model, in_tok, out_tok) -> float | None      # ACTUAL cost, at insert time
+project_call(measured_model, in_tok, out_tok) -> float | None   # production stack (D35)
+PRODUCTION_STACK: dict[str, ModelRate]                  # measured model -> production model
+PROJECTION_ASSUMPTIONS: str                             # must be shown wherever projections are
+
+# plans.py — catalogue, quota, reporting
+PLANS: dict[str, Plan]  /  get_plan(plan_id) -> Plan    # unknown id -> Free, never Clinic
+check_quota(user_id, plan_id) -> QuotaVerdict           # free blocks; paid passes to overage
+record_question(user_id, *, route, cost_usd, projected_usd, billable=True) -> int
+usage_for(user_id, plan_id, *, since=None) -> UsageSummary
+revenue_report() / margin_report() / capacity_report() / derive_pricing() -> dict
+```
+
+**Contract notes:**
+
+- `price_call` returns **None**, never `0.0`, for a call with no usage metadata. An
+  unmeasured call must stay distinguishable from a free one, or every dashboard average
+  drifts toward optimism (same convention as `compliance_check`'s "could not check").
+- **Actual cost is stored at insert; projected cost is computed at read.** Actual cost is
+  a historical fact and must not be repriced when Groq changes its list. A projection is
+  a model output and must re-derive when the scenario changes — so `llm_calls` has a
+  `cost_usd` column and deliberately has **no** `projected_usd` column (asserted by test).
+- `record_question(billable=False)` for RED_FLAG: it short-circuits on regex before any
+  specialist runs (D5), so it costs nothing and must not consume quota.
+- Plan prices are **derived** from cost at `TARGET_GROSS_MARGIN`, not chosen. If you edit
+  `PLANS`, run `derive_pricing()` — `test_every_paid_plan_clears_the_margin_target` fails
+  when a plan stops clearing.
+
+`telemetry.py` (Ben, 2026-08-08) is the measurement layer underneath all of this: it
+attaches one callback to the two cached `ChatGroq` clients in `rag_core`, so every call in
+the pipeline is recorded without any caller knowing telemetry exists. Attribution
+(`node` / `user_id` / `session_id`) travels in **ContextVars**, not module globals —
+Streamlit serves each browser session on its own thread, and a raced global would invoice
+the wrong customer.
+
+---
+
 ## 6. Orchestration design
 
 ### 6.1 Flow
@@ -1230,6 +1313,47 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 - [ ] Product report drafted (800–1500 words) mapping to the rough-sketch bullets
 - **Done when:** report, sketch, and video are in the repo (or linked from README) and the
   Status block at the top of this file says **PHASE A COMPLETE**.
+
+### Phase 7 — Monetization: accounts, billing, business console — **Evan** *(D32/D34/D35)*
+
+Built on top of Ben's `src/telemetry.py` (2026-08-08), which is the measurement layer this
+whole phase reports on. Nothing here charges anyone; the only missing piece of a real
+product is the payment processor.
+
+- [x] `src/business/pricing.py`: one place a model rate lives. Fixed the live bug that
+      `unit_economics` was still billing `llama-3.3-70b-versatile`'s $0.59/$0.79 after D27
+      migrated to gpt-oss — every displayed cost had been a chars/4 token count priced at a
+      retired model's rates. `unit_economics` now derives from this table instead of holding
+      a second copy
+- [x] `src/telemetry.py` extended: `cost_usd` / `user_id` / `session_id` columns with an
+      in-place migration; attribution moved from a module global to **ContextVars** (a raced
+      stage label mislabels a chart, a raced user label invoices the wrong customer)
+- [x] `src/auth.py` per §5.6: scrypt accounts, user/admin roles, seeded demo logins, no new
+      dependency (stdlib `hashlib`)
+- [x] `src/business/plans.py` per §5.7: subscription + metered overage, quota enforcement,
+      revenue/margin/capacity reporting, `derive_pricing()`
+- [x] `app.py` gated behind login; conversations scoped to their owner with an
+      `owns_session` check on open/delete; quota checked **before** the vision call and the
+      orchestrator so a refused question costs nothing to refuse
+- [x] `pages/1_Business_Dashboard.py`: admin-only console, re-reading the role from the
+      database on every run (hiding a sidebar link is not access control)
+- [x] Economics modelled on a **production stack** (D35) rather than the free tier, since
+      the free tier supports ~157 TEAM questions/month for the entire account
+- [x] `tests/test_monetization.py` — 51 tests covering pricing, projection, migration,
+      per-thread attribution, auth, quota, and the billing rollups
+- **Done when:** the login gate renders instead of the app (verified via `AppTest`: 0
+  sidebar blocks signed out), a non-admin is refused the console and an admin gets it, a
+  free user is blocked at quota while a paid user passes into overage, RED_FLAG consumes no
+  quota, and every paid plan clears the margin target by construction. **All verified;
+  offline suite 137 passed.**
+
+**Two corrections made during this phase, both recorded because they changed a headline
+number the report would otherwise have quoted:** (1) the first `capacity_report()` modelled
+only the per-minute cap and overstated capacity **~58×** — the daily 200k cap binds far
+earlier; (2) the D34-era "zero paying subscribers" claim assumed the then-current
+250-question plan and became "1 subscriber, $45/mo" once D35 re-derived the quota to 100.
+The test now pins the order of magnitude rather than an exact count, since that is the
+durable claim.
 
 ---
 

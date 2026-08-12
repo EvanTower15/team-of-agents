@@ -191,12 +191,15 @@ error rate — is the kind of thing a graduate audience will recognise.
 §0.3b is an engineering finding. This is the commercial one it forces, and it is the strongest
 business material in the deck because it is **measured, not modelled**.
 
-Cost to serve, at the verified gpt-oss rates (§0.2):
+Cost to serve on the free tier we actually run, at the verified gpt-oss rates (§0.2):
 
-| Route | Real tokens | Cost to serve | Price (overage) | Gross margin |
-|---|---|---|---|---|
-| Single specialist | 11,564 | **$0.0024** | $0.12 | **~98%** |
-| TEAM (3 specialists) | 38,141 | **~$0.009** | $0.12 | **~93%** |
+| Route | Real tokens | Cost to serve (free tier) |
+|---|---|---|
+| Single specialist | 11,564 | **$0.0024** |
+| TEAM (3 specialists) | 38,141 | **~$0.009** |
+
+Those are the *measurements*. The prices below are set against the **production** stack,
+not these — see the headline immediately after.
 
 ### ⭐ The headline: the same architecture is cheap or ruinous depending on the model under it
 
@@ -1308,7 +1311,7 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
 | Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com: `gpt-oss-120b` **$0.15/1M in · $0.60/1M out**; `gpt-oss-20b` **$0.075/1M in · $0.30/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code (`src/business/pricing.py` is now the only place a price lives) |
-| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM — against $0.12/question overage, i.e. **~98% gross margin**. Cost is NOT the constraint |
+| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM, on the free tier. These are the measured token volumes everything else is projected from — see the production-stack row |
 | **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month for the whole account** = **1 Recovery subscriber, $45/mo ceiling**. A TPM-only model overstates capacity ~58× — do not use one |
 | **Production stack (D35)** ✱ | Economics are modelled on **Sonnet 5** ($3/$15) specialists + **Haiku 4.5** ($1/$5) orchestration, applied to measured token counts. TEAM question **$0.0092 → $0.185 (~20×)**. Plans re-derived at a 75% margin target: **Free $0/10, Recovery $45/100, Clinic $225/500** (both paid clear 77.6%). The old $19/250 plan would run at **−32% margin**. Projected, not metered — ±20–30%, disclosed on every screen |
 | Monetization ✱ | Accounts (scrypt, stdlib), Free/Recovery $19/Clinic $99 with overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |

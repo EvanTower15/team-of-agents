@@ -487,7 +487,7 @@ python -m src.ingest --agent pt
 python -m src.ingest --agent trainer
 python -m src.ingest --agent surgeon
 python -m src.ingest --agent nutrition
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 `app.py` (Phase 5) is a chat UI over `answer_question()` plus `src/database.py` — nothing
@@ -558,6 +558,31 @@ regex-era numbers for historical comparison.
   (Phase 4b, pulled forward from the original Phase B plan), but RED_FLAG's canned
   "contact your surgeon" response deliberately stays deterministic/no-agent per D5 — §11 of
   the plan documents this as open, not forgotten.
+- **Cost figures in the UI are projected, not metered — say this before you are asked.**
+  Token counts are real, taken from the provider's own response metadata for every call in
+  the pipeline. The *rates* applied to them are those of a production stack (Sonnet 5 +
+  Haiku 4.5) that this project does not actually run on, because the free Groq tier cannot
+  host a paying customer. Token counts are not model-invariant — different tokenizers,
+  different reasoning-token spend, different answer lengths — so the projection is good to
+  roughly **±20–30%**, not to the cent. Actual spend is $0.00. Volunteering this reads as
+  rigor; conceding it under questioning does not.
+- **The revenue dashboard reflects 3 seeded demo accounts.** MRR, ARR, ARPU, and conversion
+  are structurally correct and computed from live rows, but they describe a demo population,
+  not market evidence. Do not present them as traction.
+- **Authentication is real but not production-grade, deliberately.** Passwords are salted
+  and scrypt-hashed with constant-time comparison, and `authenticate()` does not reveal
+  whether an email is registered. But there is no email verification, no password reset, no
+  rate limiting on failed logins, no session tokens or expiry, and no TLS assumption. It
+  demonstrates the mechanism; it is not something to deploy. Demo credentials are in source
+  on purpose — nobody is charged and there is no real data behind them.
+- **There is no payment processor.** Accounts, quota, overage, per-user cost attribution,
+  and invoices are all real and computed from live rows; `record_payment()` writes exactly
+  what a Stripe webhook would, marked `status='simulated'`. The "Upgrade" button changes a
+  plan field. That is the one genuinely missing piece, and it is the only one.
+- **The assumed route mix is an assumption.** Blended cost per question (~$0.1006) weights
+  single/dual/TEAM routes at 45/35/20. That is a judgment about how patients will use the
+  product, not a measurement, and every derived plan price inherits it. `plans.ROUTE_MIX`
+  is one edit away from being replaced with measured proportions once real traffic exists.
 - **Corpus breadth ≠ clinical depth.** Public-domain patient-education material, not
   clinical protocols — appropriate for an educational support tool, and the disclaimer
   exists precisely because of this.
@@ -687,7 +712,7 @@ What produces cost now:
 |---|---|
 | `src/telemetry.py` | Captures Groq's own per-call token counts, latency, and throttling into `llm_calls`; each row carries `cost_usd`, `user_id`, `session_id` |
 | `src/business/pricing.py` | The only place a Groq price lives: `gpt-oss-120b` $0.15/$0.60 per 1M, `gpt-oss-20b` $0.075/$0.30. Verified against Groq's docs 2026-08-08 |
-| `src/business/plans.py` | Free / Recovery ($19) / Clinic ($99) tiers, quota, overage, invoices, and the revenue/margin/capacity reports |
+| `src/business/plans.py` | Free ($0) / Recovery ($45) / Clinic ($225) tiers, quota, overage, invoices, and the revenue/margin/capacity reports. Prices are *derived* from projected cost at a 75% margin target via `derive_pricing()`, not hardcoded taste |
 | `src/auth.py` | Accounts (scrypt, stdlib — no new dependency), `user`/`admin` roles |
 | `pages/1_Business_Dashboard.py` | Admin-only console: MRR, ARR, ARPU, conversion, margin, per-route cost, capacity |
 
