@@ -22,3 +22,9 @@ venv/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# VS Code multi-root workspace files. These are personal and machine-specific --
+# they hardcode each developer's local folder layout (e.g. a sibling ../opim-5517
+# checkout), so one person's file is wrong for everyone else. Keep your own
+# locally; it stays put across branch switches because it is untracked.
+*.code-workspace
