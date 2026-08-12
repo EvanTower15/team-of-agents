@@ -79,15 +79,18 @@ Migrated 2026-08-07 (D27):
 | Routing, planning, compliance check | `openai/gpt-oss-20b` (`reasoning_effort="low"`) |
 | User photo description only | Google `gemini-flash-latest` — the one non-Groq call ✱ |
 
-Two things follow that the deck must reflect:
+**Groq `gpt-oss-120b` pricing (per groq.com):** Standard Input: **$0.150** per 1M tokens · Cached Input: **$0.075** per 1M tokens · Output: **$0.600** per 1M tokens. (Replaces the old Llama-3.3-70B $0.59/$0.79 rate).
 
-- **The token pricing on the old slide 13 ($0.59/$0.79 per 1M) was Llama-3.3-70B pricing.**
-  ✱ **RESOLVED 2026-08-08 — verified against console.groq.com, use these:**
-  `gpt-oss-120b` **$0.15/1M input, $0.60/1M output**; `gpt-oss-20b` **$0.075 / $0.30**.
-  They now live in exactly one place in the code (`src/business/pricing.py`) and every cost
-  figure in the app reads from it. The old numbers were still live in `unit_economics.py`
-  until 2026-08-08 — every dollar the app displayed for nine days after the migration was a
-  chars/4 token count priced at a retired model's rates (D32).
+- **Also verified for the small model:** `gpt-oss-20b` is **$0.075/1M in · $0.30/1M out** —
+  exactly half the 120b rate on both sides. That matters because routing, planning, and the
+  compliance check run on it, so pricing the whole pipeline at 120b rates overstates cost by
+  roughly a third on a single-specialist question.
+- **Both rates now live in exactly one place in the code** (`src/business/pricing.py`), and every
+  cost figure in the app reads from it. Worth saying out loud on the slide: the old $0.59/$0.79
+  was still live in `unit_economics.py` until 2026-08-08, so for nine days after the model
+  migration every dollar the app displayed was a chars/4 token count priced at a **retired
+  model's** rates — two errors pointing opposite ways, which is exactly why neither was spotted
+  (D32).
 - **gpt-oss models emit reasoning tokens before content.** They cost more per call than the model
   they replaced. Anything setting `max_tokens` must leave headroom or `content` comes back empty.
 
@@ -783,7 +786,7 @@ Four capabilities layered on the core system. One line each — do not deep-dive
   `Contraindication`) joined by typed edges, enabling multi-hop reasoning vector similarity cannot
   reach. **⚠️ Check 0.1(b) before claiming Kùzu — it currently falls back to in-memory data.**
 - **Security guardrails** — prompt-injection / jailbreak / SQL-injection scanning and PII redaction,
-  with a red-team suite. **Currently on the CLI path, not the Streamlit app.**
+  with a red-team suite. **Currently on the CLI path, not the Streamlit app.** Note on slide 11/12: LLM Guard negatively affected retrieval in Streamlit. The presenter can point out (or PPT readers conclude) that LLM Guard works in the CLI path, but not in Streamlit — because integrating `llm-guard` required downgrading `transformers` (5.14.1 → 4.51.3), which broke `sentence-transformers` and with it all four agents' retrieval and CLIP image search.
 
 **Speaker note:** Volunteer the two wiring caveats rather than waiting to be caught. In this room
 that buys more credibility than it costs.
@@ -902,9 +905,19 @@ When it runs out the client backs off silently, and the app looks frozen. We hit
 > found that by watching our own demo hang. The fix is a paid tier; the lesson is that for a
 > multi-agent system the binding constraint is throughput, not price."
 
-**Still open:** dollar cost per route (gpt-oss pricing not yet confirmed — see 0.2) and the
-human-consult ROI comparison ($150–$350/hr). Leave those two as `— TBD —`; everything else on this
-slide is real.
+**Dollar cost per route — free tier.** *(James costed these at 120b rates and got $0.0033 /
+$0.0102. The figures below are slightly lower because `pricing.py` prices each call at the model
+that **actually served it**, and route/plan/compliance run on the half-price `gpt-oss-20b`. Use
+these; the difference is the point that our cheap-model routing is already saving money.)*
+
+- Single-specialist (11,564 tokens — 8,759 on 120b, 2,805 on 20b): **~$0.0024**
+- 3-specialist TEAM (38,141 tokens, ~85% on 120b): **~$0.0092**
+- Human consult equivalent: $150–$350/hr vs. ~1 cent per AI team consult.
+
+**But do not stop there — these are free-tier numbers.** The business case is priced on a
+production stack (Sonnet 5 + Haiku 4.5), where the *same measured tokens* cost **$0.052** and
+**$0.185** — about **20× more**. See the headline in §0.3c; that contrast is the strongest point
+in the whole deck.
 
 ---
 
@@ -1310,11 +1323,12 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
-| Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com: `gpt-oss-120b` **$0.15/1M in · $0.60/1M out**; `gpt-oss-20b` **$0.075/1M in · $0.30/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code (`src/business/pricing.py` is now the only place a price lives) |
-| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM, on the free tier. These are the measured token volumes everything else is projected from — see the production-stack row |
+| Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com (independently by James and by the D32 work — same numbers). `gpt-oss-120b` **$0.150/1M in · $0.600/1M out**, cached input **$0.075/1M**; `gpt-oss-20b` **$0.075/1M in · $0.300/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code — `src/business/pricing.py` is now the only place a price lives |
+| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM, on the free tier. Lower than a flat-rate estimate because route/plan/compliance run on the half-price 20b model — `pricing.py` prices each call at the model that actually served it. These are the measured volumes everything else is projected from |
 | **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month for the whole account** = **1 Recovery subscriber, $45/mo ceiling**. A TPM-only model overstates capacity ~58× — do not use one |
 | **Production stack (D35)** ✱ | Economics are modelled on **Sonnet 5** ($3/$15) specialists + **Haiku 4.5** ($1/$5) orchestration, applied to measured token counts. TEAM question **$0.0092 → $0.185 (~20×)**. Plans re-derived at a 75% margin target: **Free $0/10, Recovery $45/100, Clinic $225/500** (both paid clear 77.6%). The old $19/250 plan would run at **−32% margin**. Projected, not metered — ±20–30%, disclosed on every screen |
-| Monetization ✱ | Accounts (scrypt, stdlib), Free/Recovery $19/Clinic $99 with overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
+| Monetization ✱ | Accounts (scrypt, stdlib), **Free $0/10 · Recovery $45/100 · Clinic $225/500** with metered overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
+| Prompt caching (unexploited) | Groq bills cached input at **$0.075/1M — half price** (James, 2026-08-09). Our specialist prompts stuff large retrieved contexts, so this is a real unclaimed lever. Not implemented; honest to mention as future work, not as a current saving |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
 | Plan bounds ✱ | `MAX_PLAN_LENGTH = 4`, de-duplicated, sanitized against hallucinated agent names |
@@ -1343,7 +1357,7 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 - [x] ~~Verify all four Chroma collections are non-empty~~ — done: PT 1,050 · trainer 536 ·
       nutrition 179 · surgeon 121 = **1,886**. Still re-check the morning of; `pt_docs` vanished once.
 - [ ] **`pip install kuzu`** or correct slide 11's GraphRAG claim.
-- [ ] **Look up current gpt-oss token pricing** — the deck must not carry the Llama-3.3 numbers.
+- [x] ~~Look up current gpt-oss token pricing~~ — **Groq `gpt-oss-120b`:** Standard Input: $0.150/1M, Cached Input: $0.075/1M, Output: $0.600/1M (per groq.com).
 - [ ] **Re-run the 15-question routing battery** on the new model + planner, or present it as
       "verified in July on the previous model." Budget the tokens.
 - [ ] **Re-run the high-risk scenario suite** now that the judge no longer fails open — then decide
