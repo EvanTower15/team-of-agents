@@ -5,6 +5,94 @@
 > AI coding agents — works from it on GitHub. Read [§0 How to use this document](#0-how-to-use-this-document)
 > before making changes anywhere in the repo.
 >
+> **Status: MONETIZATION — ACCOUNTS, METERED BILLING, BUSINESS CONSOLE (2026-08-08)** —
+> the app now runs behind a login, meters what every question really costs, bills it
+> against a plan, and reports the economics to an admin-only dashboard. Offline suite
+> 124/124. **The headline finding is commercial, not technical: cost is not what limits
+> this product — throughput is.** See the results block below before writing the
+> business section of the report.
+>
+> **Monetization results (2026-08-08)** — Evan. Built on top of Ben's telemetry from the
+> same morning; the two were developed in parallel and merged cleanly.
+>
+> 1. **Every cost figure the app showed was wrong, in two compounding ways (D32).**
+>    `unit_economics` priced a `len(text)/4` token count at **$0.59/$0.79 per 1M** — those
+>    are `llama-3.3-70b-versatile`'s rates, left behind when D27 migrated to gpt-oss on
+>    2026-08-07. So the token count was understated ~5.7× (it saw only the visible question
+>    and answer, ~1 of the 6–14 calls a question makes) while the price was overstated ~3.9×
+>    on input. `src/business/pricing.py` is now the single source of truth —
+>    **gpt-oss-120b $0.15/$0.60, gpt-oss-20b $0.075/$0.30**, verified against Groq's docs
+>    rather than remembered. Telemetry rows carry `cost_usd` priced **at insert**, so a Groq
+>    price change cannot retroactively rewrite last month's reported margin.
+> 2. **Accounts, plans, and quota (D34).** scrypt via stdlib `hashlib` — no new dependency,
+>    because this project already had to reject `llm-guard` for downgrading `transformers`.
+>    Hybrid revenue model: Free (hard stop) / Recovery / Clinic, each subscription plus
+>    metered overage. *(Prices were re-derived in D35 once economics moved to a production
+>    stack — see point 4 for the current numbers; the D34-era $19/250 and $99/2,000 tiers
+>    would run at negative margin there.)* **Billing is per question, not per token**, because a
+>    TEAM question costs ~3.3× a single-specialist one and the *planner* picks the route,
+>    not the patient (D28) — billing per token would charge someone more because our
+>    orchestrator decided their question needed the surgeon. RED_FLAG is non-billable.
+> 4. **Economics are now modelled on a production stack (D35), not the free tier.**
+>    The free tier is a proof-of-concept choice, and its ceiling (below) is the reason
+>    the business case cannot be argued on it. So the same **measured** token volumes
+>    are re-priced onto a stack a startup would actually deploy — **Sonnet 5**
+>    ($3/$15) for specialists, **Haiku 4.5** ($1/$5) for orchestration, a tier-for-tier
+>    swap of the split the architecture already has, keyed by the model that served
+>    each call. Rates verified against anthropic.com 2026-08-08; Sonnet 5's *standard*
+>    rate is used, not the $2/$10 introductory rate that expires 2026-08-31.
+>    **This inverts the conclusion.** Cost per TEAM question goes $0.0092 → **$0.185**
+>    (~20x); single-specialist $0.0024 → **$0.052**. On the free tier the multi-agent
+>    architecture's ~10x token multiplier is economically invisible; on a production
+>    stack it is **the dominant line item**, and Ben's observation that constraint
+>    extraction costs nearly as much as the consult it summarises stops being a
+>    curiosity and becomes a budget line. Plans were re-derived from that cost at a
+>    75% margin target: **Free $0/10 questions, Recovery $45/mo/100, Clinic
+>    $225/mo/500**, both paid tiers clearing 77.6% at full quota. The old $19/250 plan
+>    would run at **−32% margin** on this stack. Cost figures in the UI are therefore
+>    **projected, not metered** — token counts are measured, rates are modelled, and
+>    that is disclosed persistently in both the app and the dashboard because token
+>    counts are not model-invariant (±20–30%).
+>
+> 3. **The free-tier ceiling, kept as the evidence for point 4.** Measured cost to serve is
+>    $0.0024 (single specialist) to ~$0.009 (TEAM) against $0.12 overage — **>99% gross
+>    margin**, and it is irrelevant. Groq's free tier imposes **two** token caps:
+>    **8,000/min** is a *latency* limit (one TEAM question = 4.8 minutes of the whole
+>    account's budget → the measured 204.8 s stall), and **200,000/day** is a *volume*
+>    limit — **~5.2 TEAM questions/day, 157/month for the entire account**. Against the
+>    D35 Recovery quota of 100 questions that is **1 paying subscriber and a $45/mo
+>    revenue ceiling** (~5 if every question woke only one specialist). Lifting it is a
+>    Groq tier change, not an architecture change — which is what D35's production stack
+>    buys, and why the economics are modelled on it rather than on this tier.
+>    **Correction worth recording:** the first version of `capacity_report()` modelled the
+>    per-minute cap only and reported "~36 subscribers, $684/mo". That assumes sustaining
+>    8,000 tok/min for a month (~350M tokens) when the daily cap allows 6M — an
+>    overstatement of **~58×**. Both limits are real; only the tighter one is a ceiling.
+>    Caught while writing the explanation for the team, not by the tests, which had pinned
+>    the wrong model. Now modelled from both and pinned by
+>    `test_free_tier_cannot_host_a_paying_subscriber`.
+>
+> **Bugs found and fixed during this work:** (a) telemetry's `CREATE INDEX` on the new
+> `user_id` column sat inside `_SCHEMA`, but `CREATE TABLE IF NOT EXISTS` is a no-op on an
+> existing table — so the index ran before the `ALTER TABLE`, raised `no such column`, and
+> `record_call`'s blanket `except` swallowed it, leaving the table permanently un-migrated
+> and every insert failing in silence; (b) `auth`'s functions used the eager default
+> `db_url: str = DEFAULT_DB_URL`, which Python binds once at `def` time, so
+> `plans.revenue_report()` could never be pointed at a test database and silently read the
+> real file; (c) `capacity_report()` derived the revenue ceiling from an unfloored
+> subscriber count, so the dashboard would have shown "36 subscribers" beside "$698/mo" —
+> $19.39 each on a $19 plan. All three were caught by the new tests, not in review.
+>
+> **Stale-reference sweep:** `llama-3.3-70b-versatile` was still named as current in §0, §3,
+> §5.1, `src/vision.py`, `Capabilities_Overview` §12.6/§7, and both presentation documents,
+> nine days after the migration. Historical result blocks were left untouched per §0 — only
+> normative text was corrected.
+>
+> Verification: **124 offline tests** (87 existing + 37 new), plus `streamlit.testing`
+> AppTest runs confirming the login gate renders instead of the app, and the business
+> console refuses both signed-out and non-admin users while rendering 19 metrics for an
+> admin.
+>
 > **Status: LM ORCHESTRATOR + SPECIALIST TOOL CALLING (2026-08-07)** — a small LM now
 > plans which specialists run and in what order, specialists can call tools, and the whole
 > system runs on post-deprecation models. Full suite 82/82. **This changed the safety
@@ -550,20 +638,22 @@ Verified: full suite 82/82 on the new models, including the high-risk safety sce
 
 **For every teammate and every AI agent working in this repo:**
 
-1. **Before starting work:** read the Status block above — including the
-   **⚠️ ACTION REQUIRED BEFORE 2026-08-16** callout, since the model this whole project
-   runs on is being retired on that date — then find your phase in [§8](#8-phase-plan)
-   and confirm its dependencies are marked complete.
+1. **Before starting work:** read the Status block above, then find your phase in
+   [§8](#8-phase-plan) and confirm its dependencies are marked complete.
    > ⚠️ **Prerequisite for Ben & James (or any agent working on their behalf):** you need
    > your own free Groq API key before any agent code will actually run — the router, all
-   > four specialist agents, and synthesis all call Groq's `llama-3.3-70b-versatile`
-   > (**being retired 2026-08-16 — see the callout above**). Sign up
+   > four specialist agents, and synthesis all call Groq (`openai/gpt-oss-120b` for
+   > specialists and synthesis, `openai/gpt-oss-20b` for routing and planning, since
+   > D27). Sign up
    > at https://console.groq.com, create a key, copy `.env.example` → `.env`, and paste it in
    > as `GROQ_API_KEY=`. `.env` is gitignored — never commit it. **As of Phase 4c this is a
    > harder blocker than before:** the router itself is now LLM-primary, so without a key
    > `classify()` returns CLARIFY for every question (verified) — there's no regex fallback
    > left except RED_FLAG. Delete this notice once both of you have confirmed your keys work
    > (e.g. a phase-results block says so).
+   >
+   > **The August 16 model retirement is resolved** — migrated 2026-08-07 (D27); see the
+   > ✅ RESOLVED section above §0. Nothing to do; do not re-open it.
    >
    > **Optional second key:** `GOOGLE_API_KEY` (free, https://aistudio.google.com/apikey)
    > enables the photo-upload feature only — Groq has no vision-capable model on this
@@ -641,7 +731,7 @@ corpus files committed to `data/` instead of live ingestion scripts hitting APIs
 
 | Layer | Choice | Why |
 |---|---|---|
-| LLM | **Groq** `llama-3.3-70b-versatile`, `temperature=0.2` | Free tier, fast; named in the rough sketch; same model opim-5517 uses for routing/synthesis |
+| LLM | **Groq** `openai/gpt-oss-120b` (`temperature=0.2`) for specialists/synthesis; `openai/gpt-oss-20b` (`temperature=0`, `reasoning_effort="low"`) for routing/planning/compliance | Free tier, fast. Migrated from `llama-3.3-70b-versatile` on 2026-08-07 ahead of its 2026-08-16 retirement (D27); gpt-oss also supports tool calling, which the D29 tool loop requires. Metered per call by `src/telemetry.py`, priced by `src/business/pricing.py` |
 | Embeddings | **`sentence-transformers/all-MiniLM-L6-v2`** via `langchain-huggingface` | Free, runs locally, zero API keys/rate limits. opim-5517's Gemini embeddings needed 60-second sleeps between batches — we skip that whole class of problem. Corpus is small; quality is fine. (Decision D2) |
 | Vector DB | **ChromaDB**, embedded, persisted to `./chroma_db/`, one **collection per agent** (`pt_docs`, `trainer_docs`) | Same as opim-5517; per-agent collections keep each specialist's knowledge cleanly siloed — that siloing IS the product thesis |
 | Orchestration | **LangGraph** `StateGraph` | Same as opim-5517; gives us the agent-to-agent handoff for free via shared state |
@@ -723,9 +813,18 @@ def retrieve(question: str, collection_name: str, k: int = 4) -> list:
 
 def clear_collection(collection_name: str) -> None: ...
 def get_llm():
-    """Cached ChatGroq(model='llama-3.3-70b-versatile', temperature=0.2).
+    """Cached ChatGroq(model='openai/gpt-oss-120b', temperature=0.2).
     Raises EnvironmentError naming .env.example if GROQ_API_KEY is missing."""
+
+def get_small_llm():
+    """Cached ChatGroq(model='openai/gpt-oss-20b', temperature=0,
+    reasoning_effort='low') for routing/planning/compliance (D27)."""
 ```
+
+Both factories attach `telemetry.UsageCallback`, so every model call in the system is
+metered without any caller knowing telemetry exists. Do not construct `ChatGroq`
+anywhere else — a client built outside these two functions is invisible to cost
+tracking and to the business dashboard.
 
 ### 5.2 `src/agents/base.py` (Phase 1)
 
@@ -825,6 +924,87 @@ are JSON text (the UI reads them back whole and never filters on them), so a rel
 turn re-renders with the same badges, sources, restrictions, and debug trace as a live
 one. `app.py` owns *no* SQL — it calls these functions, and `transcript_meta()` hands it
 a dict in exactly the shape its renderer already expects.
+
+---
+
+### 5.6 `src/auth.py` (Phase 7, D34) — accounts, passwords, roles
+
+Adds a `users` table on `database.py`'s SQLAlchemy `Base`, so accounts live in the same
+SQLite file as conversations and telemetry and a per-user cost query is a plain join.
+
+```python
+init_auth(db_url=None) -> Engine        # idempotent; creates users + migrates chat_sessions
+hash_password(pw) -> str                # "scrypt$n$r$p$salt_b64$key_b64"
+verify_password(pw, stored) -> bool     # constant-time; never raises on malformed input
+create_user(email, pw, *, display_name=None, role="user", plan_id="free") -> User
+authenticate(email, pw) -> User | None  # None for BOTH bad password and no such account
+get_user(user_id) / get_user_by_email(email) -> User | None
+list_users() -> list[User]
+set_plan(user_id, plan_id) -> bool  /  set_role(user_id, role) -> bool
+seed_demo_users() -> list[tuple[str, str, str]]     # idempotent
+```
+
+**Contract notes that will bite if ignored:**
+
+- Every function takes `db_url: str | None = None` and resolves it **at call time** via
+  `_url()`. Do not "simplify" these to `db_url: str = DEFAULT_DB_URL` — Python binds
+  default arguments once at `def` time, so the eager form silently ignores any
+  reassignment of `DEFAULT_DB_URL` and keeps reading the real database. That broke
+  `plans.revenue_report()` in tests, since it calls `list_users()` with no arguments.
+- `authenticate()` deliberately does not distinguish "no such account" from "wrong
+  password", and verifies against a dummy hash when the account is missing so absence is
+  not detectable by response latency. Keep both properties.
+- **Scope is honest and limited** (see `src/auth.py`'s docstring): real salted scrypt
+  hashing and constant-time comparison, but no email verification, no password reset, no
+  login rate limiting, and no session tokens. Do not describe this as production auth.
+
+`chat_sessions` gains a nullable `user_id`. Nullable because conversations predate
+accounts (D31): rows written before login shipped stay unowned and are listed for nobody,
+which is the safe direction. `database.owns_session(user_id, session_id)` is the
+ownership check `app.py` runs before opening or deleting a conversation.
+
+### 5.7 `src/business/` (Phase 7, D32/D34/D35) — pricing, plans, billing
+
+Three modules with one rule between them: **`pricing.py` is the only place a model rate
+lives.** `unit_economics.py` derives from it rather than holding a second copy — the bug
+that motivated this layer was two independent price tables drifting apart.
+
+```python
+# pricing.py — rates and projection
+price_call(model, in_tok, out_tok) -> float | None      # ACTUAL cost, at insert time
+project_call(measured_model, in_tok, out_tok) -> float | None   # production stack (D35)
+PRODUCTION_STACK: dict[str, ModelRate]                  # measured model -> production model
+PROJECTION_ASSUMPTIONS: str                             # must be shown wherever projections are
+
+# plans.py — catalogue, quota, reporting
+PLANS: dict[str, Plan]  /  get_plan(plan_id) -> Plan    # unknown id -> Free, never Clinic
+check_quota(user_id, plan_id) -> QuotaVerdict           # free blocks; paid passes to overage
+record_question(user_id, *, route, cost_usd, projected_usd, billable=True) -> int
+usage_for(user_id, plan_id, *, since=None) -> UsageSummary
+revenue_report() / margin_report() / capacity_report() / derive_pricing() -> dict
+```
+
+**Contract notes:**
+
+- `price_call` returns **None**, never `0.0`, for a call with no usage metadata. An
+  unmeasured call must stay distinguishable from a free one, or every dashboard average
+  drifts toward optimism (same convention as `compliance_check`'s "could not check").
+- **Actual cost is stored at insert; projected cost is computed at read.** Actual cost is
+  a historical fact and must not be repriced when Groq changes its list. A projection is
+  a model output and must re-derive when the scenario changes — so `llm_calls` has a
+  `cost_usd` column and deliberately has **no** `projected_usd` column (asserted by test).
+- `record_question(billable=False)` for RED_FLAG: it short-circuits on regex before any
+  specialist runs (D5), so it costs nothing and must not consume quota.
+- Plan prices are **derived** from cost at `TARGET_GROSS_MARGIN`, not chosen. If you edit
+  `PLANS`, run `derive_pricing()` — `test_every_paid_plan_clears_the_margin_target` fails
+  when a plan stops clearing.
+
+`telemetry.py` (Ben, 2026-08-08) is the measurement layer underneath all of this: it
+attaches one callback to the two cached `ChatGroq` clients in `rag_core`, so every call in
+the pipeline is recorded without any caller knowing telemetry exists. Attribution
+(`node` / `user_id` / `session_id`) travels in **ContextVars**, not module globals —
+Streamlit serves each browser session on its own thread, and a raced global would invoice
+the wrong customer.
 
 ---
 
@@ -1134,6 +1314,47 @@ against stubbed agents any time after Phase 0, in parallel with 1–3.
 - **Done when:** report, sketch, and video are in the repo (or linked from README) and the
   Status block at the top of this file says **PHASE A COMPLETE**.
 
+### Phase 7 — Monetization: accounts, billing, business console — **Evan** *(D32/D34/D35)*
+
+Built on top of Ben's `src/telemetry.py` (2026-08-08), which is the measurement layer this
+whole phase reports on. Nothing here charges anyone; the only missing piece of a real
+product is the payment processor.
+
+- [x] `src/business/pricing.py`: one place a model rate lives. Fixed the live bug that
+      `unit_economics` was still billing `llama-3.3-70b-versatile`'s $0.59/$0.79 after D27
+      migrated to gpt-oss — every displayed cost had been a chars/4 token count priced at a
+      retired model's rates. `unit_economics` now derives from this table instead of holding
+      a second copy
+- [x] `src/telemetry.py` extended: `cost_usd` / `user_id` / `session_id` columns with an
+      in-place migration; attribution moved from a module global to **ContextVars** (a raced
+      stage label mislabels a chart, a raced user label invoices the wrong customer)
+- [x] `src/auth.py` per §5.6: scrypt accounts, user/admin roles, seeded demo logins, no new
+      dependency (stdlib `hashlib`)
+- [x] `src/business/plans.py` per §5.7: subscription + metered overage, quota enforcement,
+      revenue/margin/capacity reporting, `derive_pricing()`
+- [x] `app.py` gated behind login; conversations scoped to their owner with an
+      `owns_session` check on open/delete; quota checked **before** the vision call and the
+      orchestrator so a refused question costs nothing to refuse
+- [x] `pages/1_Business_Dashboard.py`: admin-only console, re-reading the role from the
+      database on every run (hiding a sidebar link is not access control)
+- [x] Economics modelled on a **production stack** (D35) rather than the free tier, since
+      the free tier supports ~157 TEAM questions/month for the entire account
+- [x] `tests/test_monetization.py` — 51 tests covering pricing, projection, migration,
+      per-thread attribution, auth, quota, and the billing rollups
+- **Done when:** the login gate renders instead of the app (verified via `AppTest`: 0
+  sidebar blocks signed out), a non-admin is refused the console and an admin gets it, a
+  free user is blocked at quota while a paid user passes into overage, RED_FLAG consumes no
+  quota, and every paid plan clears the margin target by construction. **All verified;
+  offline suite 137 passed.**
+
+**Two corrections made during this phase, both recorded because they changed a headline
+number the report would otherwise have quoted:** (1) the first `capacity_report()` modelled
+only the per-minute cap and overstated capacity **~58×** — the daily 200k cap binds far
+earlier; (2) the D34-era "zero paying subscribers" claim assumed the then-current
+250-question plan and became "1 subscriber, $45/mo" once D35 re-derived the quota to 100.
+The test now pins the order of magnitude rather than an exact count, since that is the
+durable claim.
+
 ---
 
 ## 9. Evaluation battery
@@ -1195,6 +1416,10 @@ Add rows as edge cases emerge (log the addition in §10).
 | D28 | 2026-08-07 | A small LM now decides **which specialists run and in what order** (`src/planner.py`), replacing `route_scores` + hardcoded graph edges | Ben's call, made knowingly against a flagged tradeoff. **This gives up a safety guarantee.** Fixed ordering (D4) guaranteed *by construction* that a restrictive specialist's constraints reached everyone downstream as binding `peer_context`; with LM-chosen order a plan of `["trainer","surgeon"]` writes the training plan before the surgeon's restrictions exist. Contained by three things, none of which fully restores it: RED_FLAG still runs on regex before planning (D5); ordering inversions are logged to the trace; and `compliance_check` re-verifies the final answer against every extracted constraint regardless of order (D30). **The claim "the model doesn't decide the things that matter" is now false and has been removed from Capabilities_Overview §7 — do not repeat it in the report.** The graph gains exactly one cycle (`consult_next` -> `consult_next`), bounded by plan length, which the planner caps and de-duplicates at the size of the roster |
 | D29 | 2026-08-07 | Specialists can call tools: deterministic calculators, own-corpus re-query, and PubMed — with PubMed gated in CODE to the case where the agent's own retrieval returned nothing | Calculators are the safe majority of the value: the numbers this system hands patients are arithmetic, and arithmetic is where LLMs quietly slip. They compute over patient-supplied values rather than introducing outside claims, so §7.1 is untouched. `search_my_corpus` preserves siloing (D3) because the collection name is injected by the agent, never read from model-supplied arguments — asserted by test. PubMed is the one that changes the product's character: it is primary research, not the vetted patient-education material in `data/`, and a single small-n abstract can read like consensus guidance inside a synthesized answer. Hence: schema not even offered unless the corpus missed, cited as `[research: PMID ...]` never `[source: filename]`, metadata only (sidesteps the full-text licensing problem `data/` already had), and unable to override a restriction. Tool loop capped at MAX_TOOL_ROUNDS=2 — unbounded tool loops are the standard way an agent burns a metered budget |
 | D30 | 2026-08-07 | `compliance_check` verifies the synthesized answer against every extracted constraint before it reaches the patient, and appends a visible warning on violation | The after-the-fact replacement for what D28 removed. Deliberately conservative: it flags only when the answer *affirmatively recommends* something a restriction forbids — telling a patient to avoid a restricted movement is the system working, not a violation. It also distinguishes "checked and clean" from "could not check" (`checked: False`), so a broken checker never reports a clean bill of health it did not establish — the same failure mode as the fabricated eval pass rate corrected in D23's audit |
+| D32 | 2026-08-08 | One pricing table (`src/business/pricing.py`) owns what a token costs, and metered rows replace the `len(text)/4` estimator as the source of every displayed cost | The estimator was wrong twice over and the two errors pointed opposite ways, which is why neither was noticed: it counted only the visible question and answer — about one of the 6–14 model calls a question makes, understating tokens ~5.7× against Ben's measured 11,564 for a single-specialist question — and priced them at **$0.59/$0.79 per 1M**, `llama-3.3-70b-versatile`'s rates, which D27 had migrated off nine days earlier, overstating input ~3.9×. Verified rates now live in exactly one file (gpt-oss-120b $0.15/$0.60, gpt-oss-20b $0.075/$0.30, checked against Groq's docs rather than remembered), and `unit_economics` derives from it instead of holding a second drifting copy. Cost is computed **at insert**, not at read: repricing history after a Groq change would silently rewrite a past period's reported margin. A call with no usage metadata records **NULL, not 0.0** — an unmeasured call must stay distinguishable from a free one, the same distinction `compliance_check` draws between "could not check" and "clean" (D30), and the same failure mode as the eval harness that scored 5/5 on exception (D13). Unknown models price at the *dearest* known rate so a missed model swap can never flatter the margin |
+| D33 | 2026-08-08 | Telemetry attribution moved from a module global to `ContextVar`s | Ben's `_current_node` global (07afb4a) was a deliberate, documented tradeoff and it is fine for what it was built for: two concurrent users racing over a *stage label* mislabels a chart. It is not fine for `user_id`. Streamlit serves every browser session on its own thread, so a raced global there would invoice user A for user B's tokens. ContextVars are per-thread, so concurrent requests attribute independently — asserted by a test that forces genuine interleaving with a `threading.Barrier`. Deliberate consequence: a callback fired from a worker thread that never had them set records NULL rather than inheriting another request's identity, and such rows are reported as `(unattributed)` rather than dropped so per-user totals always reconcile with the metered total. Unattributed is recoverable; misattributed billing is not |
+| D34 | 2026-08-08 | Accounts + subscription-with-overage billing + an admin-only business console, with **no payment processor** | The course product needs the *mechanisms* of a paid product, not payments. Everything is real and computed from live rows — scrypt-hashed accounts (stdlib `hashlib`, no new dependency, because this project already had to reject `llm-guard` for downgrading `transformers` and breaking MiniLM retrieval for all four agents), quota, overage, per-user cost-to-serve — and `record_payment()` writes the invoice a Stripe webhook would, marked `status='simulated'` so a demo row can never be mistaken for a real one. Three choices worth defending: **(a) billing is per question, not per token** — a TEAM question costs ~3.3× a single-specialist one (38,141 vs 11,564 tokens) and the *planner* chooses the route, not the patient (D28), so per-token billing would charge someone more because our orchestrator decided their question needed the surgeon; we absorb the variance and `margin_report()` is the evidence that is safe. **(b) Free blocks at quota, paid passes into overage** — charging someone who never entered a card and cutting off a paying patient mid-recovery are both wrong, in opposite directions. **(c) RED_FLAG is non-billable** — it short-circuits on regex before any specialist runs (D5), so it costs nothing to serve, and billing for being told to seek emergency care is indefensible. The console is a role-gated `pages/` file that re-reads the role from the database on every run rather than trusting `session_state`, because hiding a sidebar link is not access control. **The finding the report should lead with is commercial: at >99% gross margin, cost is not the constraint — Groq's rate limits are, and the DAILY one binds.** Two caps do different jobs: 8,000 tok/min is a latency limit (one TEAM question = 4.8 min of the account's whole budget, hence the measured 204.8 s stall), while 200,000 tok/day is a volume limit allowing only ~5.2 TEAM questions/day, i.e. **157/month for the entire account**. A capacity model built on tokens-per-minute alone overstates this by ~58× and must not be used. *(Subscriber-count figures originally recorded here assumed the then-current 250-question Recovery plan and read "zero supportable"; **D35 re-derived the plans to 100 questions, so the same 157/month now supports 1 subscriber and a $45/mo ceiling**. The order of magnitude — a free tier that cannot fund a business — is the durable claim, and the tests assert that rather than an exact count.)* |
+| D35 | 2026-08-09 | Unit economics are **modelled on a production stack** (Sonnet 5 specialists + Haiku 4.5 orchestration), not on the free Groq tier the proof-of-concept runs, and the app displays those projected figures as its primary cost numbers | The free tier is a coursework choice, not a product decision, and D34's capacity work established that it supports ~157 TEAM questions/month for the entire account — one subscriber, a $45/mo ceiling. Economics argued on it would be economics of a thing that cannot exist. So the same MEASURED token volumes are re-priced tier-for-tier onto a stack with no usage caps, keyed by the model that actually served each call (`pricing.PRODUCTION_STACK`), which preserves the real architectural cost lever: cheap models keep doing the cheap work. Sonnet 5's standard $3/$15 is used deliberately rather than its $2/$10 introductory rate, which expires 2026-08-31 — three weeks after this is presented, and a model that only works on promotional pricing is not a model. **This inverts the project's commercial conclusion.** Cost per TEAM question goes $0.0092 -> $0.185 (~20x). On the free tier the multi-agent architecture's ~10x token multiplier is economically invisible and supply is the only constraint; on a production stack that multiplier is the dominant line item, and the measured fact that constraint extraction costs nearly as much as the consult it summarises becomes a budget decision rather than trivia. Plans were re-derived from cost at a 75% margin target rather than chosen and justified: Free $0/10, Recovery $45/100, Clinic $225/500, both paid tiers clearing 77.6% at full quota — the worst case, since an idle subscriber is pure margin. The prior $19/250 plan would run at -32% margin here, which is the finding that forced the reprice. **Honesty constraint, since projected cost is now shown where metered cost used to be:** token counts are not model-invariant (different tokenizers, different reasoning-token spend, different answer lengths), so these are modelled figures accurate to roughly +/-20-30%, and both the app and the dashboard say so persistently rather than in a footnote. Actual cost is still stored per row at insert (a historical fact); the projection is computed at read time (a model output that must re-derive when the scenario changes). `capacity_report()` still models the free tier deliberately — it is the evidence for why the paid stack is necessary, not an upsell |
 | D31 | 2026-07-31 *(renumbered twice: D13 -> D23 -> D31. Work developed in parallel on `main` claimed D13–D22 in the 2026-08-02 audit pass and D23–D30 on 2026-08-07, both times while this branch was open. Renumbering this row rather than `main`'s was the cheaper direction each time — `main`'s numbers are cross-referenced from requirements.txt, §7.4, and other decision rows.)* | Multi-session chat persistence (`src/database.py`, SQLAlchemy + SQLite, ported from opim-5517 HW8) instead of Streamlit-session-only history | Chat vanished on every page reload, which made the demo feel like a toy and made it impossible to compare two separate recovery scenarios side by side. SQLite because it's a file (zero setup, matches the "pip install and run" constraint) and the team already has the HW8 pattern; WAL mode so two browser tabs = two live chats without lock errors. Multi-agent render metadata (`agents_consulted`/`sources`/`constraints`/`execution_trace`) is stored as JSON text rather than normalized — the UI reads those back whole and never queries inside them, while `route_used` and the token/cost columns, which we *do* aggregate, stay typed columns. Trade-off accepted: matched CLIP exercise images are **not** persisted (re-derived on a fresh ask), because replaying them would mean one embedding search per historical message on every rerun |
 
 ---

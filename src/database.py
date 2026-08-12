@@ -116,6 +116,11 @@ class ChatSession(Base):
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(DateTime, default=_utcnow)
     user_metadata = Column(Text)  # JSON-encoded dict
+    # Owner (D34). Nullable because conversations predate accounts: rows written
+    # before login shipped keep NULL and are simply not listed for any user,
+    # which is the safe direction -- an unowned chat must never surface in
+    # someone else's sidebar.
+    user_id = Column(String, index=True, nullable=True)
 
 
 class ChatTranscript(Base):
@@ -242,12 +247,14 @@ def create_session(
     user_metadata: dict | None = None,
     *,
     title: str | None = None,
+    user_id: str | None = None,
     db_url: str = DEFAULT_DB_URL,
 ) -> str:
     """Create a new conversation row and return its session_id (uuid4 hex).
 
     `title` is optional: left None, it is back-filled from the first question
-    the session saves (see save_transcript).
+    the session saves (see save_transcript). `user_id` is the owning account
+    (D34); None means an unowned conversation, which no user's sidebar lists.
     """
     session_id = uuid.uuid4().hex
     with Session(_engine_for(db_url), expire_on_commit=False) as s:
@@ -256,6 +263,7 @@ def create_session(
                 session_id=session_id,
                 title=title,
                 user_metadata=json.dumps(user_metadata or {}),
+                user_id=user_id,
             )
         )
         s.commit()
@@ -365,23 +373,53 @@ def get_session_transcripts(
 
 
 def list_sessions(
-    limit: int = 25, *, db_url: str = DEFAULT_DB_URL
+    limit: int = 25, *, user_id: str | None = None, db_url: str = DEFAULT_DB_URL
 ) -> list[ChatSession]:
     """Return the most recently *active* sessions first, detached and read-only.
 
     Sorted on `updated_at` (not `created_at`) so a long-running conversation the
     user keeps returning to stays at the top of the sidebar.
+
+    `user_id` scopes the list to one account (D34). Passing it filters on exact
+    match, so conversations written before accounts existed (user_id NULL) are
+    excluded rather than shown to whoever logs in first. Omitting it returns
+    every conversation and is for admin/CLI use only -- never for a logged-in
+    user's sidebar.
     """
     with Session(_engine_for(db_url), expire_on_commit=False) as s:
+        stmt = select(ChatSession)
+        if user_id is not None:
+            stmt = stmt.where(ChatSession.user_id == user_id)
         rows = list(
             s.scalars(
-                select(ChatSession)
-                .order_by(ChatSession.updated_at.desc(), ChatSession.created_at.desc())
-                .limit(limit)
+                stmt.order_by(
+                    ChatSession.updated_at.desc(), ChatSession.created_at.desc()
+                ).limit(limit)
             )
         )
         s.expunge_all()
         return rows
+
+
+def owns_session(
+    user_id: str | None, session_id: str, *, db_url: str = DEFAULT_DB_URL
+) -> bool:
+    """True when `user_id` is the recorded owner of `session_id` (D34).
+
+    Checked before opening or deleting a conversation. The sidebar only ever
+    offers a user their own sessions, so this is defence in depth rather than
+    the primary control -- but session ids are guessable-looking uuids passed
+    through widget state, and an ownership check is cheaper than reasoning
+    about whether every path that reaches here is safe.
+
+    An unowned session (user_id NULL, written before accounts existed) is owned
+    by nobody: this returns False for every caller, including None.
+    """
+    if not user_id:
+        return False
+    with Session(_engine_for(db_url)) as s:
+        row = s.get(ChatSession, session_id)
+        return row is not None and row.user_id == user_id
 
 
 def get_session(session_id: str, *, db_url: str = DEFAULT_DB_URL) -> ChatSession | None:

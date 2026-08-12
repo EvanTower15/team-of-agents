@@ -81,6 +81,16 @@ Migrated 2026-08-07 (D27):
 
 **Groq `gpt-oss-120b` pricing (per groq.com):** Standard Input: **$0.150** per 1M tokens · Cached Input: **$0.075** per 1M tokens · Output: **$0.600** per 1M tokens. (Replaces the old Llama-3.3-70B $0.59/$0.79 rate).
 
+- **Also verified for the small model:** `gpt-oss-20b` is **$0.075/1M in · $0.30/1M out** —
+  exactly half the 120b rate on both sides. That matters because routing, planning, and the
+  compliance check run on it, so pricing the whole pipeline at 120b rates overstates cost by
+  roughly a third on a single-specialist question.
+- **Both rates now live in exactly one place in the code** (`src/business/pricing.py`), and every
+  cost figure in the app reads from it. Worth saying out loud on the slide: the old $0.59/$0.79
+  was still live in `unit_economics.py` until 2026-08-08, so for nine days after the model
+  migration every dollar the app displayed was a chars/4 token count priced at a **retired
+  model's** rates — two errors pointing opposite ways, which is exactly why neither was spotted
+  (D32).
 - **gpt-oss models emit reasoning tokens before content.** They cost more per call than the model
   they replaced. Anything setting `max_tokens` must leave headroom or `content` comes back empty.
 
@@ -178,6 +188,103 @@ error rate — is the kind of thing a graduate audience will recognise.
 3. **Pick a flagship question that wakes 2–3 specialists.** This one already only woke three
    (surgeon → PT → nutritionist); the trainer was not selected.
 4. Keep the Observability tab open on a second monitor. If it stalls, *show* the ceiling.
+
+## 0.3c ✱✱ The business conclusion that follows: we are throughput-limited, not cost-limited
+
+§0.3b is an engineering finding. This is the commercial one it forces, and it is the strongest
+business material in the deck because it is **measured, not modelled**.
+
+Cost to serve on the free tier we actually run, at the verified gpt-oss rates (§0.2):
+
+| Route | Real tokens | Cost to serve (free tier) |
+|---|---|---|
+| Single specialist | 11,564 | **$0.0024** |
+| TEAM (3 specialists) | 38,141 | **~$0.009** |
+
+Those are the *measurements*. The prices below are set against the **production** stack,
+not these — see the headline immediately after.
+
+### ⭐ The headline: the same architecture is cheap or ruinous depending on the model under it
+
+The free tier is a **coursework choice**, not a product decision — and it cannot host a business
+(see the ceiling below). So the unit economics are modelled on a stack a startup would actually
+deploy: **Sonnet 5** ($3/$15) for specialists, **Haiku 4.5** ($1/$5) for orchestration — a
+tier-for-tier swap of the split we already have, applied to the **same measured token counts**.
+
+| | Free tier (actual) | Production (projected) |
+|---|---|---|
+| Single-specialist question | $0.0024 | **$0.052** |
+| TEAM question | $0.0092 | **$0.185** |
+| | | **≈ 20× dearer** |
+
+**Say this on stage:** *"On a free tier, our multi-agent design costs a fifth of a cent per
+question and nobody cares. On a production model it's 18 cents, and suddenly the fact that our
+constraint-extraction step costs almost as much as the consult it summarises is a line item we'd
+fight over. The architecture didn't change. The model under it did."*
+
+That forced a reprice. Plans are **derived** from cost at a 75% margin target, not picked:
+
+| Plan | Price | Included | Cost at full quota | Margin |
+|---|---|---|---|---|
+| Free | $0 | 10 | $1.01 | — |
+| Recovery | **$45/mo** | 100 | $10.06 | **77.6%** |
+| Clinic | **$225/mo** | 500 | $50.30 | **77.6%** |
+
+The old $19/mo plan with 250 included questions would run at **−32% margin** on this stack.
+Still cheaper than one $150 PT visit; Clinic works out to $45/provider/month.
+
+> **Honesty line, say it before someone asks:** token counts are measured, the rates are modelled.
+> Different models tokenize differently and spend different amounts on reasoning, so these are
+> projections accurate to roughly ±20–30%, not metered bills. The app says so on every screen.
+
+---
+
+**And on the free tier we actually run, token cost is not the constraint at all.** Groq imposes
+**two** token limits that cap different things. Keeping them straight matters, because modelling
+capacity from the per-minute limit alone overstates it by **~58×**:
+
+| Limit | What it constrains | Effect |
+|---|---|---|
+| **8,000 tokens/min** | **Latency** — one question | A TEAM question needs 38,141 tokens = **4.8 minutes of the whole account's budget**, so Groq stalls it. This is the 3m25s demo problem |
+| **200,000 tokens/day** ⟵ **binding** | **Volume** — how many questions exist | **~5.2 TEAM questions per day**, then the account is done until tomorrow. This is the business ceiling |
+
+Run the daily cap out to a month:
+
+| | |
+|---|---|
+| TEAM questions / month (entire account) | **157** |
+| Recovery subscribers supportable (100 questions each) | **1** |
+| Revenue ceiling | **$45 / month** |
+| Same figure if every question woke only ONE specialist | **5 subscribers** |
+
+**The entire free-tier account tops out at one paying subscriber — $45/month.** One subscriber is
+promised 100 questions a month; the whole account has 157.
+
+**The line to say on stage:** *"On the free tier the entire account supports 157 team questions a
+month — that's one customer and $45 of revenue, for the whole company. That's not a margin
+problem, it's a supply problem, and the fix is a purchase order rather than a rewrite. Which is
+exactly why we modelled the business on a paid stack instead."*
+
+> ⚠️ **Do not quote a per-minute-derived capacity number.** An earlier draft of this section said
+> "~36 subscribers, $684/mo" by modelling TPM only — that assumes sustaining 8,000 tok/min for a
+> full month (~350M tokens) when the daily cap allows 6M. Both limits are real; only the tighter
+> one is the ceiling. The corrected model is in `plans.capacity_report()` and is pinned by tests.
+
+That reframes what would otherwise be an embarrassing demo problem (the 3m25s stall) into the
+scaling analysis a business audience actually wants, and it is the same number in both places.
+
+**Monetization shipped 2026-08-08 (D32/D34)** and the demo can show it live: accounts (scrypt),
+Free / Recovery $19 / Clinic $99 with metered overage, quota enforcement, and an **admin-only
+business console** (`pages/1_Business_Dashboard.py`) rendering MRR, ARR, ARPU, conversion,
+per-route margin, and the capacity ceiling above — all from real rows. **Nothing is charged**;
+invoices are written `status='simulated'`. Two demo logins: `demo@recoveryteam.app` (patient) and
+`admin@recoveryteam.app` (console), password `recovery2026`.
+
+One honest caveat to keep in the speaker notes: billing is **per question, not per token**,
+because a TEAM question costs 3.3× a single-specialist one and *the planner* chooses the route,
+not the patient (D28). Charging a patient more because our orchestrator decided they needed the
+surgeon is not defensible, so we absorb the variance — and the margin table above is the evidence
+that absorbing it is safe.
 
 ## 0.4 ✱ One old limitation is now fixed — do not read it off the old slide
 
@@ -798,10 +905,19 @@ When it runs out the client backs off silently, and the app looks frozen. We hit
 > found that by watching our own demo hang. The fix is a paid tier; the lesson is that for a
 > multi-agent system the binding constraint is throughput, not price."
 
-**Dollar cost per route (Groq `gpt-oss-120b` @ $0.150/1M standard in, $0.075/1M cached in, $0.600/1M out):**
-- Single-specialist (~11,564 tokens: ~8k in / 3.5k out): **~$0.0033** (~0.33 cents).
-- 3-specialist TEAM (~38,141 tokens: ~28k in / 10k out): **~$0.0102** (~1.02 cents).
-- Human consult equivalent: $150–$350/hr vs. ~$0.01 per AI team consult.
+**Dollar cost per route — free tier.** *(James costed these at 120b rates and got $0.0033 /
+$0.0102. The figures below are slightly lower because `pricing.py` prices each call at the model
+that **actually served it**, and route/plan/compliance run on the half-price `gpt-oss-20b`. Use
+these; the difference is the point that our cheap-model routing is already saving money.)*
+
+- Single-specialist (11,564 tokens — 8,759 on 120b, 2,805 on 20b): **~$0.0024**
+- 3-specialist TEAM (38,141 tokens, ~85% on 120b): **~$0.0092**
+- Human consult equivalent: $150–$350/hr vs. ~1 cent per AI team consult.
+
+**But do not stop there — these are free-tier numbers.** The business case is priced on a
+production stack (Sonnet 5 + Haiku 4.5), where the *same measured tokens* cost **$0.052** and
+**$0.185** — about **20× more**. See the headline in §0.3c; that contrast is the strongest point
+in the whole deck.
 
 ---
 
@@ -1207,7 +1323,12 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | **Measured cost, single specialist** ✱ | **11,564 real tokens / 6 calls** — consult 3,643 · synthesize 2,641 · extract_constraints 2,475 · compliance 1,364 · route 988 · plan 453 |
 | **Estimator error** ✱ | The app's chars/4 heuristic logged a comparable question at **2,011** — understates by **~5.7×** on the cheapest route |
 | **Telemetry** ✱ | `src/telemetry.py` — LangChain callback on both ChatGroq clients; real usage, latency, and 429s per pipeline stage into an `llm_calls` table; surfaced in the app's **Observability** tab |
-| Token pricing | **Groq `gpt-oss-120b`:** Standard Input: $0.150/1M · Cached Input: $0.075/1M · Output: $0.600/1M (per groq.com) ✱ |
+| Token pricing ✱ | **VERIFIED 2026-08-08** against console.groq.com (independently by James and by the D32 work — same numbers). `gpt-oss-120b` **$0.150/1M in · $0.600/1M out**, cached input **$0.075/1M**; `gpt-oss-20b` **$0.075/1M in · $0.300/1M out**. The old $0.59/$0.79 was Llama-3.3-70B and is gone from the code — `src/business/pricing.py` is now the only place a price lives |
+| **Measured cost to serve** ✱ | **$0.0024** single-specialist · **~$0.009** TEAM, on the free tier. Lower than a flat-rate estimate because route/plan/compliance run on the half-price 20b model — `pricing.py` prices each call at the model that actually served it. These are the measured volumes everything else is projected from |
+| **The real constraint** ✱ | **Two** free-tier caps. **8,000 tok/min** = latency (one TEAM question = 4.8 min of the whole account's budget → the 3m25s stall). **200,000 tok/day** = volume, and it BINDS: ~5.2 TEAM questions/day, **157/month for the whole account** = **1 Recovery subscriber, $45/mo ceiling**. A TPM-only model overstates capacity ~58× — do not use one |
+| **Production stack (D35)** ✱ | Economics are modelled on **Sonnet 5** ($3/$15) specialists + **Haiku 4.5** ($1/$5) orchestration, applied to measured token counts. TEAM question **$0.0092 → $0.185 (~20×)**. Plans re-derived at a 75% margin target: **Free $0/10, Recovery $45/100, Clinic $225/500** (both paid clear 77.6%). The old $19/250 plan would run at **−32% margin**. Projected, not metered — ±20–30%, disclosed on every screen |
+| Monetization ✱ | Accounts (scrypt, stdlib), **Free $0/10 · Recovery $45/100 · Clinic $225/500** with metered overage, quota enforcement, admin-only business console at `pages/1_Business_Dashboard.py`. **Nothing is charged**; invoices marked `status='simulated'` |
+| Prompt caching (unexploited) | Groq bills cached input at **$0.075/1M — half price** (James, 2026-08-09). Our specialist prompts stuff large retrieved contexts, so this is a real unclaimed lever. Not implemented; honest to mention as future work, not as a current saving |
 | Specialist tools ✱ | 5 calculators + `search_my_corpus` + gated `search_pubmed`; **max 2 tool rounds** |
 | PubMed gate ✱ | Schema not offered unless the agent's own retrieval returned empty — enforced in code |
 | Plan bounds ✱ | `MAX_PLAN_LENGTH = 4`, de-duplicated, sanitized against hallucinated agent names |

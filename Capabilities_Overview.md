@@ -210,8 +210,8 @@ consult(question, peer_context=None) ->
 The `consult()` lifecycle: retrieve top-k chunks from the agent's own collection → build a
 context block where every passage is labeled `[source: filename]` → fill the prompt template
 (persona + grounding rule + optional peer block + context + question) → one Groq LLM call
-(`llama-3.3-70b-versatile`, temperature 0.2) → return the draft plus the de-duplicated list
-of source files.
+(`openai/gpt-oss-120b`, temperature 0.2 — migrated from `llama-3.3-70b-versatile` on
+2026-08-07, D27) → return the draft plus the de-duplicated list of source files.
 
 Three design properties matter more than the plumbing:
 
@@ -487,7 +487,7 @@ python -m src.ingest --agent pt
 python -m src.ingest --agent trainer
 python -m src.ingest --agent surgeon
 python -m src.ingest --agent nutrition
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 `app.py` (Phase 5) is a chat UI over `answer_question()` plus `src/database.py` — nothing
@@ -558,6 +558,31 @@ regex-era numbers for historical comparison.
   (Phase 4b, pulled forward from the original Phase B plan), but RED_FLAG's canned
   "contact your surgeon" response deliberately stays deterministic/no-agent per D5 — §11 of
   the plan documents this as open, not forgotten.
+- **Cost figures in the UI are projected, not metered — say this before you are asked.**
+  Token counts are real, taken from the provider's own response metadata for every call in
+  the pipeline. The *rates* applied to them are those of a production stack (Sonnet 5 +
+  Haiku 4.5) that this project does not actually run on, because the free Groq tier cannot
+  host a paying customer. Token counts are not model-invariant — different tokenizers,
+  different reasoning-token spend, different answer lengths — so the projection is good to
+  roughly **±20–30%**, not to the cent. Actual spend is $0.00. Volunteering this reads as
+  rigor; conceding it under questioning does not.
+- **The revenue dashboard reflects 3 seeded demo accounts.** MRR, ARR, ARPU, and conversion
+  are structurally correct and computed from live rows, but they describe a demo population,
+  not market evidence. Do not present them as traction.
+- **Authentication is real but not production-grade, deliberately.** Passwords are salted
+  and scrypt-hashed with constant-time comparison, and `authenticate()` does not reveal
+  whether an email is registered. But there is no email verification, no password reset, no
+  rate limiting on failed logins, no session tokens or expiry, and no TLS assumption. It
+  demonstrates the mechanism; it is not something to deploy. Demo credentials are in source
+  on purpose — nobody is charged and there is no real data behind them.
+- **There is no payment processor.** Accounts, quota, overage, per-user cost attribution,
+  and invoices are all real and computed from live rows; `record_payment()` writes exactly
+  what a Stripe webhook would, marked `status='simulated'`. The "Upgrade" button changes a
+  plan field. That is the one genuinely missing piece, and it is the only one.
+- **The assumed route mix is an assumption.** Blended cost per question (~$0.1006) weights
+  single/dual/TEAM routes at 45/35/20. That is a judgment about how patients will use the
+  product, not a measurement, and every derived plan price inherits it. `plans.ROUTE_MIX`
+  is one edit away from being replaced with measured proportions once real traffic exists.
 - **Corpus breadth ≠ clinical depth.** Public-domain patient-education material, not
   clinical protocols — appropriate for an educational support tool, and the disclaimer
   exists precisely because of this.
@@ -671,20 +696,92 @@ regex-era numbers for historical comparison.
   `meta-llama/llama-prompt-guard-2-86m`, a purpose-built injection classifier, as a
   stronger drop-in upgrade — noted, not yet implemented.
 
-### 12.6 Business unit economics (`src/business/unit_economics.py`)
-- **Cost estimate:** input ($0.59/1M) and output ($0.79/1M) Groq pricing applied to a token
-  count **estimated** as `len(text)/4` — a heuristic, *not* real usage metadata from the
-  API response. Labeled as an approximation in the UI.
-- **Session tracking:** the sidebar computes real per-exchange cost from the actual chat
-  history and shows an accumulated session total with a budget warning.
-- **Fixed in the audit:** the sidebar previously displayed a **hardcoded `$0.0012`** and
-  never touched a real query. The budget guard still does not *block* requests when
-  exceeded — it warns. Stated plainly rather than described as enforcement.
+### 12.6 Business unit economics & monetization (`src/business/`, `src/auth.py`)
+
+**Superseded 2026-08-08 (D32/D34).** The estimator described here through 2026-08-07 —
+input ($0.59/1M) and output ($0.79/1M) applied to a `len(text)/4` token count — was wrong
+twice over and no longer produces any number the app displays. It counted only the visible
+question and answer (roughly one of the 6–14 model calls a question makes) and priced them
+at `llama-3.3-70b-versatile`'s rates, which D27 migrated off on 2026-08-07. Measured, a
+single-specialist question is **11,564 tokens, not the ~2,000 the estimator reported** —
+understated ~5.7×, then over-priced ~3.9× on input.
+
+What produces cost now:
+
+| Module | Responsibility |
+|---|---|
+| `src/telemetry.py` | Captures Groq's own per-call token counts, latency, and throttling into `llm_calls`; each row carries `cost_usd`, `user_id`, `session_id` |
+| `src/business/pricing.py` | The only place a Groq price lives: `gpt-oss-120b` $0.15/$0.60 per 1M, `gpt-oss-20b` $0.075/$0.30. Verified against Groq's docs 2026-08-08 |
+| `src/business/plans.py` | Free ($0) / Recovery ($45) / Clinic ($225) tiers, quota, overage, invoices, and the revenue/margin/capacity reports. Prices are *derived* from projected cost at a 75% margin target via `derive_pricing()`, not hardcoded taste |
+| `src/auth.py` | Accounts (scrypt, stdlib — no new dependency), `user`/`admin` roles |
+| `pages/1_Business_Dashboard.py` | Admin-only console: MRR, ARR, ARPU, conversion, margin, per-route cost, capacity |
+
+**Revenue model — subscription plus metered overage.** Billing is per *question*, not per
+token, for a reason that only became visible once real measurement existed: a TEAM question
+costs ~3.3× a single-specialist one (38,141 vs 11,564 tokens), and the **planner** picks the
+route, not the patient (D28). Billing per token would charge someone more because our
+orchestrator decided their question needed the surgeon. RED_FLAG answers are non-billable —
+they short-circuit on regex before any specialist runs (D5), so they cost nothing, and
+charging for being told to seek emergency care is indefensible.
+
+**Economics are modelled on a production stack, not the free tier (D35).** The free Groq
+tier is a coursework choice; the section below shows it supports ~157 TEAM questions a
+month for the entire account. Arguing unit economics on it would describe a business that
+cannot exist. So the same **measured** token volumes are re-priced tier-for-tier onto a
+stack with no usage caps — **Sonnet 5** ($3/$15) for specialists, **Haiku 4.5** ($1/$5)
+for orchestration — keyed by the model that actually served each call.
+
+| | Free tier (actual) | Production (projected) |
+|---|---|---|
+| Single-specialist question | $0.0024 | **$0.052** |
+| TEAM question | $0.0092 | **$0.185** (~20×) |
+
+**That 20× inverts the conclusion.** On the free tier the multi-agent architecture's ~10×
+token multiplier is economically invisible and supply is the only constraint. On a
+production stack it is **the dominant line item** — the measured fact that constraint
+extraction costs nearly as much as the consult it summarises becomes a budget decision
+rather than trivia. The same architecture is cheap or ruinous depending entirely on the
+model tier beneath it.
+
+Plans are *derived* from that cost at a 75% margin target, not chosen then justified:
+**Free $0/10 questions, Recovery $45/mo/100, Clinic $225/mo/500**, both paid tiers
+clearing 77.6% at full quota use (the worst case — an idle subscriber is pure margin).
+The proof-of-concept-era $19/mo/250 plan would run at **−32% margin** here.
+
+⚠️ **Projected, not metered.** Token counts are measured; the rates applied to them are
+modelled. Token counts are not model-invariant — different tokenizers, different
+reasoning-token spend, different answer lengths — so treat projections as ±20–30%. Both
+the app and the dashboard disclose this persistently rather than in a footnote. Actual
+cost is still stored per row at insert (a historical fact); the projection is computed at
+read time (a model output that must re-derive when the scenario changes).
+
+**Why a paid stack is necessary at all — the free-tier ceiling.**
+Groq's free tier imposes two token limits that cap different things:
+
+| Limit | Constrains | Consequence |
+|---|---|---|
+| **8,000 tokens/minute** | Latency of *one* question | A TEAM question is 38,141 tokens = **4.8 minutes of the whole account's budget**, so Groq stalls it — 204.8 s measured, with zero 429s |
+| **200,000 tokens/day** ⟵ **binding** | Total *volume* | **~5.2 TEAM questions/day → 157/month** for the entire account |
+
+One Recovery subscriber is promised 100 questions a month, so **the entire free-tier
+account tops out at 1 paying subscriber — a $45/month revenue ceiling** (~5 if every
+question woke only one specialist). Lifting it is a Groq tier change, not an architecture
+change, which is exactly what the production stack above buys.
+
+⚠️ Capacity must be modelled from the **daily** cap. Deriving it from tokens-per-minute
+assumes sustaining 8,000 tok/min for a month (~350M tokens) when the daily cap allows 6M —
+an overstatement of ~58×. `plans.capacity_report()` models both and names the binding one.
+
+**Nothing is charged** — this is coursework. Accounts, quota, overage, and cost-to-serve are
+all real and computed from live rows; the only missing piece is a payment processor, and
+`plans.record_payment()` writes the invoice a Stripe webhook would, marked
+`status='simulated'`. `BudgetOverrunGuard` still *warns* rather than blocking; quota
+enforcement in `plans.check_quota()` is the part that actually stops a request.
 
 ### 12.7 High-Risk Patient Safety & LLM-as-a-Judge Evaluator
 - **Location:** `tests/test_high_risk_scenarios.py` & `src/eval/eval_suite.py`
 - **Stress-Test Benchmark:** Tests uninsured / self-treating patient scenarios (premature 225lb heavy gym squatting, skipping PT visits, forcing shoulder ROM, extreme 500 cal/day starvation diets, infection red-flags).
-- **LLM-as-a-Judge Evaluation:** Uses Groq `Llama-3.3-70B` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
+- **LLM-as-a-Judge Evaluation:** Uses Groq `openai/gpt-oss-120b` to evaluate outputs for **Clinical Safety (1–5)**, **Constraint Adherence (1–5)**, and **Brevity & Conciseness (1–5)**.
 - **Fixed in the audit — read before citing any pass rate:** the judge previously returned
   a **hardcoded perfect score with `PASS: True` on any exception** (missing key, rate
   limit, bad JSON), and the backup string assertions matched substrings so common

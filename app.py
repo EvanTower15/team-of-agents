@@ -12,6 +12,17 @@ several conversations going -- each browser tab holds its own active session --
 and reload any of them from the sidebar later. Streamlit session_state stays the
 render cache; the database is the source of truth across reloads.
 
+Access requires an account (src/auth.py, D34): the login screen renders INSTEAD
+of the app and st.stop()s, so no question is ever answered without a user to
+attribute and meter it to. Conversations are scoped to their owner. Quota is
+checked before the vision call and before the orchestrator, so a refused
+question costs nothing to refuse.
+
+Cost figures shown here are METERED, not estimated -- read from
+src/telemetry.py's per-call token rows priced by src/business/pricing.py. The
+chars/4 estimator that used to fill the sidebar panel is no longer the source
+of any number the user sees (D32).
+
 Run (one ingest per specialist — there is no --agent all):
     python -m src.ingest --agent pt
     python -m src.ingest --agent trainer
@@ -29,7 +40,8 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-from src.business.unit_economics import CostCalculator
+from src import auth, telemetry
+from src.business import plans
 from src.database import (
     create_session,
     delete_session,
@@ -37,6 +49,7 @@ from src.database import (
     get_session_transcripts,
     init_db,
     list_sessions,
+    owns_session,
     save_result,
     session_stats,
     transcript_meta,
@@ -56,17 +69,17 @@ def _get_visual_search():
 def _render_observability() -> None:
     """Real per-call token accounting, read from src/telemetry.py.
 
-    Deliberately distinct from the sidebar's unit-economics panel: that one
-    estimates cost from string length, this one reports what Groq actually
-    charged us. Where they disagree, this is the truthful one.
+    Engineering-facing, and deliberately distinct from the business dashboard
+    (pages/1_Business_Dashboard.py): this answers "where do the tokens and the
+    latency go", that one answers "does the price cover the cost". Both now
+    read the same metered rows -- as of D32 nothing in this app estimates cost
+    from string length any more.
     """
-    from src import telemetry
-
     st.caption(
-        "Actual token counts from Groq response metadata — not the chars/4 "
-        "estimate used in the sidebar. Covers every call in the pipeline: "
-        "router, planner, each specialist, tool rounds, constraint extraction, "
-        "the peer back-channel, synthesis, and the compliance check."
+        "Actual token counts from Groq response metadata, for every call in "
+        "the pipeline: router, planner, each specialist, tool rounds, "
+        "constraint extraction, the peer back-channel, synthesis, and the "
+        "compliance check."
     )
 
     s = telemetry.summary()
@@ -185,6 +198,96 @@ st.markdown(
 # Create the DB file/tables if needed. Cheap on every rerun -- the engine is
 # cached per URL inside src/database.py.
 init_db()
+auth.init_auth()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Authentication gate (D34)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _render_login() -> None:
+    """Sign-in / sign-up screen. Renders INSTEAD of the app, never alongside it.
+
+    The caller `st.stop()`s after this, so an unauthenticated request never
+    reaches the chat, the sidebar, or the orchestrator -- there is no path where
+    a question is answered without an account to attribute (and meter) it to.
+    """
+    st.title("🩹 Recovery Team")
+    st.caption(
+        "Educational support only -- not a substitute for advice from a "
+        "licensed clinician."
+    )
+
+    created = auth.seed_demo_users()
+    tab_in, tab_up = st.tabs(["Sign in", "Create account"])
+
+    with tab_in:
+        with st.form("signin"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            if st.form_submit_button("Sign in", use_container_width=True):
+                user = auth.authenticate(email, password)
+                if user is None:
+                    # Same message for both failure modes, so the form cannot be
+                    # used to discover which emails are registered.
+                    st.error("Email or password is incorrect.")
+                else:
+                    st.session_state.user_id = user.user_id
+                    st.rerun()
+
+        st.divider()
+        st.caption("**Demo accounts** — this is coursework; no one is charged.")
+        st.code(
+            "\n".join(
+                f"{email:<28} {pw:<14} {role}"
+                for email, pw, role, _plan, _name in auth.DEMO_ACCOUNTS
+            ),
+            language="text",
+        )
+        if created:
+            st.caption(f"({len(created)} demo account(s) created just now.)")
+
+    with tab_up:
+        with st.form("signup"):
+            new_email = st.text_input("Email", key="su_email")
+            new_name = st.text_input("Display name (optional)", key="su_name")
+            new_pw = st.text_input("Password", type="password", key="su_pw")
+            new_pw2 = st.text_input("Confirm password", type="password", key="su_pw2")
+            st.caption(
+                f"New accounts start on **{plans.PLANS['free'].name}** — "
+                f"{plans.PLANS['free'].included_questions} questions a month, "
+                f"{len(plans.PLANS['free'].specialists)} specialists."
+            )
+            if st.form_submit_button("Create account", use_container_width=True):
+                if new_pw != new_pw2:
+                    st.error("Passwords do not match.")
+                else:
+                    try:
+                        user = auth.create_user(
+                            new_email, new_pw, display_name=new_name or None
+                        )
+                    except ValueError as exc:
+                        st.error(str(exc))
+                    else:
+                        st.session_state.user_id = user.user_id
+                        st.rerun()
+
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = None
+
+CURRENT_USER = (
+    auth.get_user(st.session_state.user_id) if st.session_state.user_id else None
+)
+
+if CURRENT_USER is None:
+    # Covers both "never logged in" and "account deleted/deactivated mid-session".
+    st.session_state.user_id = None
+    _render_login()
+    st.stop()
+
+PLAN = plans.get_plan(CURRENT_USER.plan_id)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -251,23 +354,40 @@ def _messages_from_transcripts(transcripts: list) -> list[dict]:
     return messages
 
 
-def _cost_meta(question: str, answer: str) -> dict:
-    """Estimated token/cost metrics for one turn (the estimator src/cli.py uses)."""
-    cost = CostCalculator.calculate_query_cost(question, answer)
+def _cost_meta(before: dict, after: dict) -> dict:
+    """Real metered token/cost for ONE turn, as the delta of two session reads.
+
+    Replaces the chars/4 estimator this used to call (D32). That estimator saw
+    only the visible question and answer -- roughly one of the 6-14 model calls
+    a question actually makes -- and priced them at `llama-3.3-70b-versatile`'s
+    retired rates. Measured, the same single-specialist question is 11,564
+    tokens, not the ~2,000 the estimator reported.
+
+    Taken as a delta rather than a per-request tally because telemetry rows are
+    keyed by session, and a session may already hold earlier turns.
+    """
     return {
         "tokens": {
-            "input_tokens": cost.input_tokens,
-            "output_tokens": cost.output_tokens,
-            "total_tokens": cost.total_tokens,
+            # telemetry stores a combined total per call; the input/output split
+            # lives in llm_calls and is reported per-stage in the Observability
+            # tab rather than re-derived here.
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": max(0, after["tokens"] - before["tokens"]),
         },
-        "cost_usd": cost.groq_cost_usd,
+        # `cost_usd` is what Groq actually charged; `projected_usd` is the same
+        # measured tokens priced on the production stack (D35). Both are kept:
+        # the first is a historical fact, the second is what the app displays.
+        "cost_usd": max(0.0, after["cost_usd"] - before["cost_usd"]),
+        "projected_usd": max(
+            0.0, after.get("projected_usd", 0.0) - before.get("projected_usd", 0.0)
+        ),
+        "llm_calls": max(0, after["calls"] - before["calls"]),
     }
 
 
 def _persist_turn(question: str, result: dict, cost_meta: dict) -> None:
-    """Save one turn, creating the DB session lazily on the first saved turn."""
-    if st.session_state.session_id is None:
-        st.session_state.session_id = create_session({"client": "streamlit"})
+    """Save one turn to the active (already-created) conversation."""
     save_result(
         st.session_state.session_id,
         question,
@@ -275,6 +395,22 @@ def _persist_turn(question: str, result: dict, cost_meta: dict) -> None:
         tokens=cost_meta["tokens"],
         cost_usd=cost_meta["cost_usd"],
     )
+
+
+def _ensure_session(user_id: str) -> str:
+    """Return the active conversation id, creating it if this is the first turn.
+
+    Created BEFORE the orchestrator runs rather than after (the previous
+    behaviour), because telemetry attributes each model call to a session id
+    and there would otherwise be nothing to attribute the first turn to. Still
+    lazy with respect to *page loads*: merely opening the app, or a second tab,
+    creates nothing -- only asking a question does.
+    """
+    if st.session_state.session_id is None:
+        st.session_state.session_id = create_session(
+            {"client": "streamlit"}, user_id=user_id
+        )
+    return st.session_state.session_id
 
 
 def _local_stamp(value: datetime | None) -> str:
@@ -307,6 +443,59 @@ with st.sidebar:
         "answers and in what order."
     )
 
+    # ── account + plan ───────────────────────────────────────────────────────
+    st.divider()
+    _usage = plans.usage_for(CURRENT_USER.user_id, CURRENT_USER.plan_id)
+
+    st.markdown(
+        f"**{CURRENT_USER.display_name or CURRENT_USER.email}**"
+        + ("  ·  🛠️ admin" if CURRENT_USER.is_admin else "")
+    )
+    st.caption(f"{CURRENT_USER.email} — **{PLAN.name}** plan")
+
+    if PLAN.included_questions:
+        st.progress(
+            min(1.0, _usage.utilization),
+            text=f"{_usage.questions_used} / {PLAN.included_questions} questions",
+        )
+    if _usage.overage_questions:
+        st.caption(
+            f"{_usage.overage_questions} over quota · "
+            f"${_usage.overage_usd:.2f} overage this month"
+        )
+    st.caption(
+        f"Billed this period: **${_usage.total_billed_usd:.2f}** "
+        f"(${PLAN.monthly_price_usd:.0f} plan + ${_usage.overage_usd:.2f} usage)"
+    )
+
+    if PLAN.is_free:
+        with st.expander("Upgrade"):
+            for pid in ("recovery", "clinic"):
+                p = plans.PLANS[pid]
+                st.markdown(
+                    f"**{p.name}** — ${p.monthly_price_usd:.0f}/mo · "
+                    f"{p.included_questions:,} questions, then "
+                    f"${p.overage_per_question_usd:.2f} each"
+                )
+                st.caption(" · ".join(p.features))
+                if st.button(f"Switch to {p.name}", key=f"up_{pid}",
+                             use_container_width=True):
+                    # No payment step: this is coursework. plans.record_payment
+                    # writes the invoice a Stripe webhook would.
+                    auth.set_plan(CURRENT_USER.user_id, pid)
+                    plans.record_payment(
+                        CURRENT_USER.user_id, plan_id=pid,
+                        subscription_usd=p.monthly_price_usd, overage_usd=0.0,
+                    )
+                    st.rerun()
+            st.caption("Demo only — no card is collected and nothing is charged.")
+
+    if st.button("Sign out", use_container_width=True):
+        st.session_state.user_id = None
+        st.session_state.messages = []
+        st.session_state.session_id = None
+        st.rerun()
+
     st.divider()
     st.markdown("**Conversations**")
 
@@ -335,7 +524,11 @@ with st.sidebar:
 
     # Reloading a past conversation is an explicit button (not the selectbox's
     # own change event) so that browsing the list never clobbers the open chat.
-    _past = [s for s in list_sessions(limit=25) if s.session_id != _sid]
+    _past = [
+        s
+        for s in list_sessions(limit=25, user_id=CURRENT_USER.user_id)
+        if s.session_id != _sid
+    ]
     if _past:
         _labels = {s.session_id: _session_label(s) for s in _past}
         _pick = st.selectbox(
@@ -347,15 +540,22 @@ with st.sidebar:
         _open_col, _del_col = st.columns([3, 1])
         with _open_col:
             if st.button("📂 Open", use_container_width=True):
-                st.session_state.session_id = _pick
-                st.session_state.messages = _messages_from_transcripts(
-                    get_session_transcripts(_pick)
-                )
-                st.session_state.persist_error = None
-                st.rerun()
+                # The list is already scoped to this user; re-checking ownership
+                # here is defence in depth against a stale widget value pointing
+                # at someone else's conversation.
+                if owns_session(CURRENT_USER.user_id, _pick):
+                    st.session_state.session_id = _pick
+                    st.session_state.messages = _messages_from_transcripts(
+                        get_session_transcripts(_pick)
+                    )
+                    st.session_state.persist_error = None
+                    st.rerun()
+                else:
+                    st.error("That conversation is not available.")
         with _del_col:
             if st.button("🗑️", help="Delete the selected conversation", use_container_width=True):
-                delete_session(_pick)
+                if owns_session(CURRENT_USER.user_id, _pick):
+                    delete_session(_pick)
                 st.rerun()
     else:
         st.caption("No other saved conversations yet.")
@@ -374,36 +574,64 @@ with st.sidebar:
     show_debug = st.toggle("Show routing debug trace", value=False)
 
     st.divider()
-    with st.expander("Business unit economics (this session)"):
+    with st.expander("Unit economics (this conversation)"):
+        # Metered, not estimated (D32). The chars/4 estimator that used to fill
+        # this panel priced the visible question and answer only -- about one of
+        # the 6-14 calls a question makes -- at a retired model's rates.
         try:
-            from src.business.unit_economics import CostCalculator, BudgetOverrunGuard, VerticalStrategyMetrics
+            from src.business.unit_economics import VerticalStrategyMetrics
 
-            st.caption("Groq `gpt-oss-120b` - costs are estimated, not metered.")
-
-            # Real per-exchange cost computed from the actual chat history in
-            # this session, not a hardcoded placeholder number. Pair each user
-            # message with the assistant reply that immediately follows it.
-            guard = BudgetOverrunGuard()
-            msgs = st.session_state.messages
-            for i, msg in enumerate(msgs):
-                if msg["role"] == "user" and i + 1 < len(msgs) and msgs[i + 1]["role"] == "assistant":
-                    metrics = CostCalculator.calculate_query_cost(msg["content"], msgs[i + 1]["content"])
-                    guard.check_and_update(metrics.groq_cost_usd)
-
-            if guard.query_count:
-                st.markdown(f"**This session:** {guard.query_count} exchange(s)")
-                st.caption(f"- Estimated Groq cost so far: ${guard.accumulated_session_cost:.4f}")
-                if guard.accumulated_session_cost > 0:
+            _sc = telemetry.session_cost(_sid) if _sid else {
+                "calls": 0, "tokens": 0, "cost_usd": 0.0, "projected_usd": 0.0
+            }
+            if _sc["calls"]:
+                st.caption(
+                    f"Billed at production rates "
+                    f"(**{plans.pricing.PRODUCTION_STACK_NAME}**). Token counts "
+                    f"are measured; the rates are modelled — see the note at the "
+                    f"bottom of the page."
+                )
+                st.markdown(
+                    f"**{_sc['calls']} model calls · {_sc['tokens']:,} tokens · "
+                    f"${_sc['projected_usd']:.4f}**"
+                )
+                _turns = session_stats(_sid)["turns"] or 1
+                _per_q = _sc["projected_usd"] / _turns
+                st.caption(f"- Cost to serve per question: ${_per_q:.5f}")
+                if _per_q > 0:
                     roi = VerticalStrategyMetrics.calculate_roi_versus_human_care(
-                        guard.accumulated_session_cost / guard.query_count, 15.0
+                        _per_q, 15.0
                     )
-                    st.caption(f"- vs. human consult equivalent: ${roi['human_care_equivalent_usd']:.2f} ({roi['cost_reduction_multiplier']})")
-                if guard.accumulated_session_cost > guard.max_session_budget:
-                    st.warning(f"Over the ${guard.max_session_budget:.2f} session estimate.")
+                    st.caption(
+                        f"- vs. a 15-min human consult "
+                        f"(${roi['human_care_equivalent_usd']:.2f}): "
+                        f"{roi['cost_reduction_multiplier']}"
+                    )
+                st.caption(
+                    f"- Billed to you: ${PLAN.overage_per_question_usd:.2f}/question "
+                    f"past the included {PLAN.included_questions}"
+                    if not PLAN.is_free
+                    else f"- Free plan: {PLAN.included_questions} questions/month, "
+                         f"no charge"
+                )
             else:
-                st.caption("No exchanges yet this session.")
+                st.caption("No model calls recorded for this conversation yet.")
         except Exception as exc:
             st.caption(f"(unit economics unavailable: {exc})")
+
+    # Persistent, always-visible disclosure. The app deliberately presents
+    # itself as though it were really billing at production rates (D35); this
+    # is the one place that says plainly that it is not, so the immersion never
+    # costs a viewer an accurate understanding.
+    st.divider()
+    st.caption(
+        f"💡 **Pricing model:** costs shown are modelled on "
+        f"**{plans.pricing.PRODUCTION_STACK_NAME}**, applied to token volumes "
+        f"measured on this proof-of-concept's free Groq tier. "
+        f"**Actual spend: $0.00 — nobody is charged.**"
+    )
+    with st.expander("How the projected costs are calculated"):
+        st.caption(plans.pricing.PROJECTION_ASSUMPTIONS)
 
 st.title("Recovery Team")
 st.caption(
@@ -507,6 +735,29 @@ if _submission:
         question = "What can you tell me about this photo?"
 
 if question:
+    # Quota gate (D34). Checked BEFORE the vision call and before the
+    # orchestrator, so a blocked question costs nothing to refuse. Free users
+    # hit a hard stop; paid users pass through and accrue overage instead --
+    # cutting off a paying patient mid-recovery over a quota would be the wrong
+    # failure mode for this product.
+    _verdict = plans.check_quota(CURRENT_USER.user_id, CURRENT_USER.plan_id)
+    if not _verdict.allowed:
+        st.session_state.messages.append(
+            {"role": "user", "content": question, "image_description": ""}
+        )
+        with st.chat_message("user", avatar="🙂"):
+            st.markdown(question)
+        with st.chat_message("assistant", avatar="🩹"):
+            st.warning(_verdict.reason)
+            st.caption(
+                "Use **Upgrade** in the sidebar. This is coursework — no card "
+                "is collected and nothing is charged."
+            )
+        st.stop()
+
+    if _verdict.will_incur_overage:
+        st.info(_verdict.reason)
+
     # If a photo is attached, describe it with a vision model first and fold
     # that description into the question -- the specialists themselves run on
     # a text-only model, so this is what lets them "see" it (src/vision.py).
@@ -544,6 +795,12 @@ if question:
             with st.expander("🖼️ What the vision model saw in your photo"):
                 st.caption(image_description)
 
+    # Create the conversation up front so every model call this turn makes can
+    # be attributed to a user and a session as it happens.
+    _sid_active = _ensure_session(CURRENT_USER.user_id)
+    telemetry.set_user(CURRENT_USER.user_id, _sid_active)
+    _cost_before = telemetry.session_cost(_sid_active)
+
     with st.chat_message("assistant", avatar="🩹"):
         with st.spinner("Consulting the care team..."):
             result = answer_question(effective_question, history=prior_history)
@@ -555,7 +812,22 @@ if question:
         st.markdown(_badges_html(result["agents_consulted"]), unsafe_allow_html=True)
         st.markdown(result["final_answer"])
 
-    cost_meta = _cost_meta(question, result["final_answer"])
+    cost_meta = _cost_meta(_cost_before, telemetry.session_cost(_sid_active))
+
+    # Count the question against quota and record what it actually cost to
+    # serve. RED_FLAG is non-billable: it short-circuits on regex before any
+    # specialist runs (D5), so it costs nothing -- and charging someone for
+    # being told to seek emergency care is indefensible.
+    plans.record_question(
+        CURRENT_USER.user_id,
+        session_id=_sid_active,
+        plan_id=CURRENT_USER.plan_id,
+        route=result["route"],
+        cost_usd=cost_meta["cost_usd"],
+        projected_usd=cost_meta["projected_usd"],
+        billable=result["route"] != "RED_FLAG",
+    )
+
     st.session_state.messages.append(
         {
             "role": "assistant",
