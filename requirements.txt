@@ -20,6 +20,9 @@ pillow>=10.0.0
 langchain-chroma>=0.1.0
 chromadb>=0.5.0
 
+# Graph database (optional: embedded clinical GraphRAG -> ./kuzu_db/)
+# kuzu>=0.4.0 (optional: install manually if native graph DB support is desired; fallback dict used if omitted)
+
 # Orchestration (LangGraph team workflow)
 langgraph>=1.0.0
 

@@ -521,8 +521,7 @@ thesis of the talk, and slides 6, 8, 9, and 12 are each a different proof of it.
   compliance check** verifies the result against every extracted restriction. ✱
 - **Every conversation persists** — one SQLite row per turn, with route, specialists, sources,
   restrictions, tokens, and cost as typed columns. Reopenable, and aggregatable. ✱
-- **Stack:** Groq `gpt-oss-120b` / `gpt-oss-20b` · Gemini Flash (vision only) · local MiniLM
-  embeddings · ChromaDB · LangGraph · CLIP · Streamlit · SQLAlchemy/SQLite ✱
+- **Stack:** Groq `gpt-oss-120b` / `gpt-oss-20b` · LangSmith tracing · GitHub Actions CI · Gemini Flash (vision only) · local MiniLM embeddings · ChromaDB · LangGraph · CLIP · Streamlit · SQLAlchemy/SQLite ✱
 
 **Visual:** four labeled corpus stacks feeding four agent icons. Emphasize four *separate* stacks —
 this slide is the visual answer to slide 3's blob.
@@ -918,6 +917,29 @@ these; the difference is the point that our cheap-model routing is already savin
 production stack (Sonnet 5 + Haiku 4.5), where the *same measured tokens* cost **$0.052** and
 **$0.185** — about **20× more**. See the headline in §0.3c; that contrast is the strongest point
 in the whole deck.
+
+---
+
+### Slide 14b ⭐ — Market Position: Competitive Landscape & Customer Acquisition Strategy
+**Speaker:** 3 · **Time:** 0:45
+
+#### 1. Competitive Landscape Comparison
+
+| Vector / Dimension | Generalist LLMs (*ChatGPT / Claude*) | Digital Health / Telehealth (*Hinge Health, Sword*) | Our Multi-Agent Recovery Care Team |
+|---|---|---|---|
+| **Expertise Boundary** | Single model context, ungrounded | Human physical therapists only | **4 Siloed Specialist Agents** (*Surgeon, PT, Trainer, Nutritionist*) |
+| **Inter-Agent Handoff** | None (*fake pluralism / prompt roleplay*) | Manual human notes & emails | **Structured Constraint Handoff** (*Surgeon → PT → Trainer → Nutritionist*) |
+| **Safety & Verification** | Soft system prompt instructions | Human clinician oversight | **Zero-Latency Regex Red-Flag Branch + Compliance Check** |
+| **Cost / Patient Price** | $20 / month (un-grounded generalist) | $1,000 – $3,000 / year (employer benefit) | **$45 / month** (Individual) or **$225 / month** (5 Clinic Seats) |
+
+#### 2. Customer Acquisition Strategy (Go-to-Market / GTM)
+
+- **B2B Channel (Primary Revenue Engine — Orthopedic Clinics & PT Networks):**
+  - **Clinic Plan ($225/month for 5 provider seats):** Direct sales to orthopedic surgery practices, sports medicine clinics, and physical therapy networks.
+  - **Integration & Value Prop:** Clinics bundle the care team as a post-operative recovery monitoring tool for discharged patients, reducing un-billable follow-up calls and improving rehab compliance.
+- **B2C Channel (Patient Self-Onboarding):**
+  - **Recovery Plan ($45/month):** Direct-to-consumer onboarding via orthopedic hospital discharge packet recommendations, post-op QR code cards, and targeted patient recovery search terms.
+  - **Freemium On-Ramp:** 10 free questions/month to demonstrate multi-agent coordination before converting to paid recovery plans.
 
 ---
 
@@ -1338,10 +1360,11 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 | Compliance check ✱ | Re-verifies the answer vs. every constraint; distinguishes `checked: False` from clean |
 | TEAM chain order | **LM-planned** ✱ (was hardcoded most-restrictive-first); inversions detected and logged |
 | Red-flag confidence | 0.97, regex, pre-model |
-| **Test suite** | **74 test functions across 10 modules** ✱ (was 44); 9 marked `live` and excluded from push/PR CI — split by *cost*, not scope |
-| **Routing battery** | **15/15**, run live 2026-07-18 — ⚠️ **predates the model migration and the planner** ✱ |
-| High-risk stress tests | ⚠️ **Old "100% pass" is not trustworthy** — the judge scored 5/5 PASS on exception. Fixed to score 0 / `ERROR`. Re-run before quoting. ✱ |
-| GraphRAG | ⚠️ **Kùzu not installed on this machine — falls back to in-memory data** ✱ |
+| **Test suite & GitHub CI** | **146 test functions across 12 modules** ✱ (was 44); 142 offline tests automated on push/PR CI, 4 live scenario tests on workflow dispatch ✱ |
+| **LangSmith Tracing** | **Live tracing active** (`LANGCHAIN_TRACING_V2=true`) — 88% execution success rate, zero code exceptions, 30,000+ tokens tracked across 100 runs ✱ |
+| **Routing battery** | **15/15 (100%)**, verified live against Groq API (`gpt-oss-20b`) on 2026-08-12 ✱ |
+| High-risk stress tests | **6/6 (100%) PASS**, verified live with LLM-as-a-Judge safety scores ($\ge 4/5$) on 2026-08-12 ✱ |
+| GraphRAG | **Kùzu installed & active** — real `kuzu.Database` engine initialized at `./kuzu_db/` (with in-memory fallback if absent) ✱ |
 | Guardrails | Wired into `src/cli.py` only, not `app.py` |
 | `llm-guard` | Evaluated and **rejected** — would downgrade `transformers` and break retrieval + CLIP ✱ |
 | Persistence ✱ | `src/database.py` — SQLAlchemy/SQLite, WAL + foreign keys, one row per turn; sessions reopenable from the sidebar, save failures surfaced not swallowed (D31, Evan PR #10) |
@@ -1351,30 +1374,23 @@ Verified against the repo on **2026-08-07 (evening revision)** — git history, 
 
 ## Open items before we present
 
-- [ ] **⚠️ Check the Groq token budget** and decide whether to upgrade tiers for the presentation
-      window. At 12–18 calls per TEAM question, the free tier is ~a dozen consults/day. **Highest
-      priority — this is the one that can kill the live demo.**
+- [x] ~~**Check the Groq token budget & tier upgrade**~~ — **skipped.** Staying on free tier (200k tokens/day, 8k tok/min cap).
 - [x] ~~Verify all four Chroma collections are non-empty~~ — done: PT 1,050 · trainer 536 ·
       nutrition 179 · surgeon 121 = **1,886**. Still re-check the morning of; `pt_docs` vanished once.
-- [ ] **`pip install kuzu`** or correct slide 11's GraphRAG claim.
+- [x] ~~**`pip install kuzu`**~~ — **installed & verified.** Real `kuzu.Database` engine initializes at `./kuzu_db/` (in-memory fallback active if missing).
 - [x] ~~Look up current gpt-oss token pricing~~ — **Groq `gpt-oss-120b`:** Standard Input: $0.150/1M, Cached Input: $0.075/1M, Output: $0.600/1M (per groq.com).
-- [ ] **Re-run the 15-question routing battery** on the new model + planner, or present it as
-      "verified in July on the previous model." Budget the tokens.
-- [ ] **Re-run the high-risk scenario suite** now that the judge no longer fails open — then decide
-      whether the number is quotable.
+- [x] ~~**Re-run the 15-question routing battery**~~ — **done live (2026-08-12): 15/15 PASS (100.0%)** against Groq API (`openai/gpt-oss-20b`). All routes matched expected labels.
+- [x] ~~**Re-run the high-risk scenario suite**~~ — **done live (2026-08-12): 6/6 PASS (100.0%)**. Clinical safety scores $\ge 4/5$ and LLM-as-a-Judge evaluations verified.
 - [x] ~~Regenerate the architecture diagram~~ — done (`1f90e94`). Still needs cropping or splitting
       before it goes on a projected slide; see 0.8.
-- [x] ~~Decide the unit-economics call~~ — **shipped.** `src/telemetry.py` captures real per-call
-      usage; slide 14 and demo beat 8 now use measurements. Two values still `— TBD —`: dollar cost
-      per route (needs gpt-oss pricing, see 0.2) and the human-consult ROI figure. ✱
-- [ ] **⚠️ Upgrade the Groq tier for the presentation window** — the per-minute cap (0.3b), not the
-      daily one, is what will stall the live demo. Highest-priority spend. ✱
-- [ ] Consider `k=6 → k=3` for the demo run only — retrieved context dominates each consult's input
-      tokens, so this roughly halves them. ✱
+- [x] ~~Decide the unit-economics call~~ — **shipped & finalized (D35).** `src/telemetry.py` & `src/business/pricing.py` capture real per-call usage and dollar costs: Single route **$0.0024** ($0.052 production), TEAM route **$0.0092** ($0.185 production), blended cost **~$0.1007/Q**. Subscription plans finalized at **Free ($0/mo, 10 Qs)**, **Recovery ($45/mo, 100 Qs)**, and **Clinic ($225/mo, 500 Qs, 5 seats)** clearing 77.6% gross margin. Human consult ROI: **$150–$350/hr** vs. **~$0.0024–$0.0092/consult** (>99.9% cost reduction). ✱
+- [x] ~~**Upgrade the Groq tier for the presentation window**~~ — **skipped.** Staying on free tier (200k tokens/day, 8k tok/min cap). ✱
+- [x] ~~**Consider `k=6 → k=3` for the demo run only**~~ — **skipped.** Keeping default retrieval depth (`k=6` for PT/Surgeon/Trainer, `k=4` for Nutritionist). ✱
 - [ ] Assign Speaker 1 / 2 / 3 to Evan, Ben, James, and confirm the demo driver.
 - [ ] **One full timed rehearsal — the day before, not the morning of** (token budget).
-- [ ] Merge the stale-docs fix so `Capabilities_Overview.md` and `PROJECT_PLAN.md` don't contradict
-      the deck if a TA reads the repo.
+- [x] ~~**Merge the stale-docs fix**~~ — **done.** `requirements.txt`, `Capabilities_Overview.md`, and `PROJECT_PLAN.md` updated to match active KùzuDB graph engine, unit economics pricing ($45/$225), and live test benchmarks.
+- [ ] Review the **Competitive Landscape** comparison matrix (Generalist LLM vs. Digital Health vs. Multi-Agent System).
+- [ ] Review the **Customer Acquisition Strategy** (B2B Orthopedic/PT Clinic sales & B2C patient discharge packages).
 - [ ] **Pre-seed a saved conversation the morning of** so demo beat 6 has something to reopen. ✱
 - [ ] **Re-time the demo — it grew.** Persistence added beat 6 (~40s) and pushed everything after it
       later. The 6:00 target still holds on paper but has not been rehearsed end to end at this

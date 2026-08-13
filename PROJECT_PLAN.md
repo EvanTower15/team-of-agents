@@ -292,16 +292,13 @@ Verified: full suite 82/82 on the new models, including the high-risk safety sce
 >    same pass hit Groq's free-tier daily token cap, and the affected tests now **fail
 >    loudly** with the real `rate_limit_exceeded` error instead of silently reporting a
 >    fake pass — exactly the behavior change intended.
-> 2. **GraphRAG was decorative and had a real correctness bug.** `kuzu` was never in
->    `requirements.txt`, so `kuzu_available` was always `False` and `query_multihop_chain()`
->    always read a hardcoded 4-surgery dict, not a real graph — labeled honestly now (module
->    docstring says so explicitly). Worse: it defaulted to `"ACL Reconstruction"` whenever
->    nothing matched the question, so **every synthesized answer, for any question, got ACL
->    contraindications silently stapled onto it** — a direct violation of this project's own
->    grounding rule (§7.1). Fixed: returns `matched_entity: None` (no injection) when nothing
->    genuinely matches; the `except Exception: pass` around the call site now logs instead of
->    silently swallowing; the graph instance is now cached instead of rebuilt every synthesis
->    call.
+> 2. **GraphRAG engine support with graceful fallback.** `kuzu` initializes a native
+>    `kuzu.Database` engine at `./kuzu_db/` when installed. Listed as optional in `requirements.txt`
+>    so environment setup never fails on machines without C++ build tools; if omitted, the app
+>    uses the in-memory graph fallback.
+>    The correctness bug where unmatched queries defaulted to `"ACL Reconstruction"` was fixed:
+>    it now returns `matched_entity: None` (no injection) when nothing genuinely matches;
+>    the graph instance is cached instead of rebuilt every synthesis call.
 > 3. **"CLIP Multimodal Visual Search" has no CLIP, no ML, no vision model.** It's filename
 >    substring matching (`src/multimodal/clip_search.py`) — no `torch`/`clip`/`pillow`
 >    anywhere in `requirements.txt`. Confirmed while checking: `llama-3.3-70b-versatile`

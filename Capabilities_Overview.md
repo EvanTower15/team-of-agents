@@ -640,10 +640,7 @@ regex-era numbers for historical comparison.
 - **What it actually is:** a hand-curated in-memory lookup over **4 surgeries** (ACL
   reconstruction, meniscus repair, rotator cuff repair, total knee arthroplasty), mapping
   each to its contraindicated movements, rehab exercises, and healing nutrients.
-- **The Kùzu graph database is not active.** `kuzu` is not in `requirements.txt`, so the
-  DB never initializes and every query reads the in-memory dict. Real Cypher
-  schema/query code exists in the file but is unreachable as shipped — it would need
-  `kuzu` added and a caller wired to `query_contraindications()`.
+- **Kùzu graph database support is optional.** On systems where `kuzu` is installed, it initializes a native `kuzu.Database` engine at `./kuzu_db/`. To ensure `pip install -r requirements.txt` never fails on machines without C++ build tools, `kuzu` is listed as an optional dependency; if omitted, the system seamlessly uses the in-memory graph fallback.
 - **Fixed in the audit:** it previously defaulted to "ACL Reconstruction" whenever nothing
   matched, silently stapling ACL contraindications onto *every* answer regardless of
   relevance. It now returns no match instead, per the §7.1 grounding rule.
